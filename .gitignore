@@ -1,0 +1,11 @@
+images/
+uploaded_images/
+gallery_images/
+scraped_images/
+downloads/
+static/
+*.db
+*.sqlite
+venv/
+__pycache__/
+scraper_chrome_profile/
