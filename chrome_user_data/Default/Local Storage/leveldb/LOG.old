@@ -1,6 +1,0 @@
-2026/06/13-12:26:08.256 cadc Reusing MANIFEST C:\Users\PC\Documents\trae_projects\Scapre for thozil\chrome_user_data\Default\Local Storage\leveldb/MANIFEST-000001
-2026/06/13-12:26:08.259 cadc Recovering log #12
-2026/06/13-12:26:08.259 cadc Reusing old log C:\Users\PC\Documents\trae_projects\Scapre for thozil\chrome_user_data\Default\Local Storage\leveldb/000012.log 
-2026/06/13-12:27:08.271 91d0 Level-0 table #16: started
-2026/06/13-12:27:08.295 91d0 Level-0 table #16: 11913 bytes OK
-2026/06/13-12:27:08.302 91d0 Delete type=0 #12
