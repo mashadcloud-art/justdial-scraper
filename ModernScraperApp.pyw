@@ -12,6 +12,8 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from PIL import Image, ImageTk
 
+import app_config
+
 # Add project directory to path
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
@@ -85,6 +87,7 @@ class ModernScraperApp(tb.Window):
         # Create tabs
         self.setup_scraper_tab()
         self.setup_dashboard_tab()
+        self.setup_settings_tab()
 
         # Footer Log
         self.setup_log()
@@ -756,6 +759,195 @@ What would you like to do?"""
             set_stop_flag(False)
             self.start_btn.config(state=NORMAL)
             self.single_scrape_btn.config(state=NORMAL)
+
+    def setup_settings_tab(self):
+        self.settings_tab = tb.Frame(self.notebook, padding=20)
+        self.notebook.add(self.settings_tab, text="⚙️ Settings")
+
+        # Scrollable container for settings
+        canvas = tb.Canvas(self.settings_tab)
+        scrollbar = tb.Scrollbar(self.settings_tab, orient=VERTICAL, command=canvas.yview)
+        scroll_frame = tb.Frame(canvas)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side=RIGHT, fill=Y)
+        canvas.pack(side=LEFT, fill=BOTH, expand=True)
+
+        # ---------------- DATABASE CONFIG ----------------
+        db_lf = tb.LabelFrame(scroll_frame, text="🔌 Database Settings")
+        db_lf.pack(fill=X, expand=True, pady=(0, 15), padx=5)
+
+        tb.Label(db_lf, text="Database Type:", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 5), padx=10)
+        self.db_type_var = tb.StringVar()
+        self.db_type_combo = tb.Combobox(db_lf, textvariable=self.db_type_var, values=["SQLite (Local)", "PostgreSQL"], state="readonly")
+        self.db_type_combo.pack(fill=X, pady=(0, 10), padx=10)
+        self.db_type_combo.bind("<<ComboboxSelected>>", self.toggle_db_fields)
+
+        # Postgres Connection Link Frame
+        self.pg_frame = tb.Frame(db_lf)
+        tb.Label(self.pg_frame, text="Connection Link (postgresql://username:password@host:port/dbname):", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 5), padx=10)
+        self.db_url_var = tb.StringVar()
+        self.db_url_entry = tb.Entry(self.pg_frame, textvariable=self.db_url_var, font=("Segoe UI", 10))
+        self.db_url_entry.pack(fill=X, pady=(0, 10), padx=10)
+
+        # ---------------- STORAGE CONFIG ----------------
+        storage_lf = tb.LabelFrame(scroll_frame, text="📦 Image Storage Settings")
+        storage_lf.pack(fill=X, expand=True, pady=(0, 15), padx=5)
+
+        tb.Label(storage_lf, text="Storage Provider:", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 5), padx=10)
+        self.storage_var = tb.StringVar()
+        self.storage_combo = tb.Combobox(storage_lf, textvariable=self.storage_var, values=["Local Disk", "AWS S3", "Cloudinary"], state="readonly")
+        self.storage_combo.pack(fill=X, pady=(0, 10), padx=10)
+        self.storage_combo.bind("<<ComboboxSelected>>", self.toggle_storage_fields)
+
+        # AWS S3 Fields
+        self.aws_frame = tb.Frame(storage_lf)
+        self.aws_key_var = tb.StringVar()
+        self.aws_secret_var = tb.StringVar()
+        self.aws_bucket_var = tb.StringVar()
+        self.aws_region_var = tb.StringVar()
+
+        tb.Label(self.aws_frame, text="AWS Access Key ID:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.aws_frame, textvariable=self.aws_key_var, font=("Segoe UI", 10)).pack(fill=X, pady=(0, 10), padx=10)
+        tb.Label(self.aws_frame, text="AWS Secret Access Key:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.aws_frame, textvariable=self.aws_secret_var, font=("Segoe UI", 10), show="*").pack(fill=X, pady=(0, 10), padx=10)
+        tb.Label(self.aws_frame, text="S3 Bucket Name:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.aws_frame, textvariable=self.aws_bucket_var, font=("Segoe UI", 10)).pack(fill=X, pady=(0, 10), padx=10)
+        tb.Label(self.aws_frame, text="AWS Region (e.g. us-east-1):", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.aws_frame, textvariable=self.aws_region_var, font=("Segoe UI", 10)).pack(fill=X, pady=(0, 10), padx=10)
+
+        # Cloudinary Fields
+        self.cloudinary_frame = tb.Frame(storage_lf)
+        self.cloud_name_var = tb.StringVar()
+        self.cloud_key_var = tb.StringVar()
+        self.cloud_secret_var = tb.StringVar()
+
+        tb.Label(self.cloudinary_frame, text="Cloudinary Cloud Name:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.cloudinary_frame, textvariable=self.cloud_name_var, font=("Segoe UI", 10)).pack(fill=X, pady=(0, 10), padx=10)
+        tb.Label(self.cloudinary_frame, text="Cloudinary API Key:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.cloudinary_frame, textvariable=self.cloud_key_var, font=("Segoe UI", 10)).pack(fill=X, pady=(0, 10), padx=10)
+        tb.Label(self.cloudinary_frame, text="Cloudinary API Secret:", font=("Segoe UI", 10)).pack(anchor=W, pady=(0, 5), padx=10)
+        tb.Entry(self.cloudinary_frame, textvariable=self.cloud_secret_var, font=("Segoe UI", 10), show="*").pack(fill=X, pady=(0, 10), padx=10)
+
+        # ---------------- ACTIONS ----------------
+        actions_frame = tb.Frame(scroll_frame)
+        actions_frame.pack(fill=X, expand=True, pady=15, padx=5)
+
+        self.save_settings_btn = tb.Button(actions_frame, text="💾 Save Settings", command=self.save_settings, bootstyle="success", width=20)
+        self.save_settings_btn.pack(side=LEFT, padx=(0, 10))
+
+        # Load current values
+        self.load_settings_into_ui()
+
+    def toggle_db_fields(self, event=None):
+        db_type = self.db_type_var.get()
+        if db_type == "PostgreSQL":
+            self.pg_frame.pack(fill=X, pady=(5, 0))
+        else:
+            self.pg_frame.pack_forget()
+
+    def toggle_storage_fields(self, event=None):
+        provider = self.storage_var.get()
+        self.aws_frame.pack_forget()
+        self.cloudinary_frame.pack_forget()
+
+        if provider == "AWS S3":
+            self.aws_frame.pack(fill=X, pady=(5, 0))
+        elif provider == "Cloudinary":
+            self.cloudinary_frame.pack(fill=X, pady=(5, 0))
+
+    def load_settings_into_ui(self):
+        try:
+            cfg = app_config.CONFIG
+            
+            # Load Database settings
+            db_url = cfg.get("database", {}).get("url")
+            if db_url:
+                self.db_type_combo.set("PostgreSQL")
+                self.db_url_var.set(db_url)
+                self.pg_frame.pack(fill=X, pady=(5, 0))
+            else:
+                self.db_type_combo.set("SQLite (Local)")
+                self.db_url_var.set("")
+                self.pg_frame.pack_forget()
+
+            # Load Storage settings
+            provider = cfg.get("storage", {}).get("provider", "local")
+            if provider == "aws":
+                self.storage_combo.set("AWS S3")
+                self.aws_frame.pack(fill=X, pady=(5, 0))
+            elif provider == "cloudinary":
+                self.storage_combo.set("Cloudinary")
+                self.cloudinary_frame.pack(fill=X, pady=(5, 0))
+            else:
+                self.storage_combo.set("Local Disk")
+                self.aws_frame.pack_forget()
+                self.cloudinary_frame.pack_forget()
+
+            # Load specific provider credentials
+            aws_cfg = cfg.get("aws", {})
+            self.aws_key_var.set(aws_cfg.get("access_key", ""))
+            self.aws_secret_var.set(aws_cfg.get("secret_key", ""))
+            self.aws_bucket_var.set(aws_cfg.get("bucket_name", ""))
+            self.aws_region_var.set(aws_cfg.get("region", ""))
+
+            cloud_cfg = cfg.get("cloudinary", {})
+            self.cloud_name_var.set(cloud_cfg.get("cloud_name", ""))
+            self.cloud_key_var.set(cloud_cfg.get("api_key", ""))
+            self.cloud_secret_var.set(cloud_cfg.get("api_secret", ""))
+        except Exception as e:
+            self.log(f"⚠️  Error loading settings into UI: {e}")
+
+    def save_settings(self):
+        try:
+            db_type = self.db_type_var.get()
+            db_url = self.db_url_var.get().strip() if db_type == "PostgreSQL" else None
+            
+            provider_map = {
+                "Local Disk": "local",
+                "AWS S3": "aws",
+                "Cloudinary": "cloudinary"
+            }
+            provider = provider_map.get(self.storage_var.get(), "local")
+
+            new_config = {
+                "database": {
+                    "url": db_url
+                },
+                "storage": {
+                    "provider": provider
+                },
+                "aws": {
+                    "access_key": self.aws_key_var.get().strip(),
+                    "secret_key": self.aws_secret_var.get().strip(),
+                    "bucket_name": self.aws_bucket_var.get().strip(),
+                    "region": self.aws_region_var.get().strip()
+                },
+                "cloudinary": {
+                    "cloud_name": self.cloud_name_var.get().strip(),
+                    "api_key": self.cloud_key_var.get().strip(),
+                    "api_secret": self.cloud_secret_var.get().strip()
+                }
+            }
+            
+            # Merge and save
+            merged = app_config.merge_configs(app_config.CONFIG, new_config)
+            app_config.save_config(merged)
+            
+            # Force reload local config instance
+            app_config.CONFIG = merged
+            
+            messagebox.showinfo("Success", "Settings saved successfully!\n\nNote: If you changed database settings, please restart the application for the changes to take effect.")
+            self.log("⚙️ Settings saved to config.yaml successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save settings: {e}")
+            self.log(f"❌ Error saving settings: {e}")
 
     def log(self, message):
         if not hasattr(self, "log_text"):
