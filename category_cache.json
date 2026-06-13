@@ -1,0 +1,187 @@
+{
+  "Automobiles": {
+    "id": "1001",
+    "subcategories": [
+      "Car Dealers",
+      "Car Repair & Services",
+      "Two Wheeler Dealers",
+      "Bike Repair & Services",
+      "Car Accessories",
+      "Car Rental",
+      "Tyres & Tubeless",
+      "Car Washing Services"
+    ]
+  },
+  "Banks & Financial Services": {
+    "id": "1002",
+    "subcategories": [
+      "Banks",
+      "ATM",
+      "Loan Providers",
+      "Personal Loans",
+      "Home Loans",
+      "Credit Cards",
+      "Insurance Agents",
+      "Mutual Funds"
+    ]
+  },
+  "Beauty & Spas": {
+    "id": "1003",
+    "subcategories": [
+      "Beauty Parlours",
+      "Beauty Spas",
+      "Hair Stylists",
+      "Makeup Artists",
+      "Salons",
+      "Skin Care Clinics",
+      "Nail Spas"
+    ]
+  },
+  "Education": {
+    "id": "1004",
+    "subcategories": [
+      "Schools",
+      "Colleges",
+      "Tutorials",
+      "Coaching Classes",
+      "Computer Training Institutes",
+      "Language Classes",
+      "Play Schools",
+      "MBA Colleges"
+    ]
+  },
+  "Electronics": {
+    "id": "1005",
+    "subcategories": [
+      "Mobile Phone Dealers",
+      "Laptop Dealers",
+      "Electronic Goods Showrooms",
+      "TV Repair & Services",
+      "AC Repair & Services",
+      "Computer Repair & Services"
+    ]
+  },
+  "Entertainment": {
+    "id": "1006",
+    "subcategories": [
+      "Cinema Halls",
+      "Event Organisers",
+      "DJs",
+      "Bands",
+      "Gaming Zones",
+      "Amusement Parks",
+      "Sports Clubs"
+    ]
+  },
+  "Health & Medical": {
+    "id": "1007",
+    "subcategories": [
+      "Hospitals",
+      "Clinics",
+      "Doctors",
+      "Dentists",
+      "Pathology Labs",
+      "Medical Shops",
+      "Ayurvedic Clinics",
+      "Physiotherapists"
+    ]
+  },
+  "Home Services": {
+    "id": "1008",
+    "subcategories": [
+      "Packers & Movers",
+      "Pest Control Services",
+      "Electricians",
+      "Plumbers",
+      "Carpenters",
+      "AC Repair & Services",
+      "Refrigerator Repair",
+      "Home Cleaning Services"
+    ]
+  },
+  "Hotels & Restaurants": {
+    "id": "1009",
+    "subcategories": [
+      "Restaurants",
+      "Hotels",
+      "Fast Food",
+      "Cafes",
+      "Bakeries",
+      "Ice Cream Parlours",
+      "Lounge Bars",
+      "Multicuisine Restaurants"
+    ]
+  },
+  "Legal & Professional Services": {
+    "id": "1010",
+    "subcategories": [
+      "Lawyers",
+      "Advocates",
+      "Chartered Accountants",
+      "Tax Consultants",
+      "Architects",
+      "Interior Designers",
+      "Insurance Agents"
+    ]
+  },
+  "Real Estate": {
+    "id": "1011",
+    "subcategories": [
+      "Estate Agents",
+      "Property Developers",
+      "Builders",
+      "Apartment Rental",
+      "Villa Rental",
+      "Commercial Property",
+      "Land & Plots"
+    ]
+  },
+  "Shopping": {
+    "id": "1012",
+    "subcategories": [
+      "Clothing Stores",
+      "Jewellery Showrooms",
+      "Footwear Dealers",
+      "Supermarkets",
+      "Grocery Stores",
+      "Furniture Dealers",
+      "Electronic Goods"
+    ]
+  },
+  "Travel & Tourism": {
+    "id": "1013",
+    "subcategories": [
+      "Travel Agents",
+      "Tour Operators",
+      "Airline Ticketing Agents",
+      "Railway Ticketing Agents",
+      "Bus Services",
+      "Car Rental",
+      "Hotels"
+    ]
+  },
+  "Events & Weddings": {
+    "id": "1014",
+    "subcategories": [
+      "Wedding Planners",
+      "Event Organisers",
+      "Caterers",
+      "Photographers",
+      "Videographers",
+      "Banquet Halls",
+      "Decorators",
+      "Flower Decorators"
+    ]
+  },
+  "Computer & IT": {
+    "id": "1015",
+    "subcategories": [
+      "Computer Training Institutes",
+      "Software Companies",
+      "IT Solution Providers",
+      "Web Designing Services",
+      "Computer Repair & Services",
+      "Laptop Dealers"
+    ]
+  }
+}

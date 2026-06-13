@@ -12,6 +12,7 @@ class Restaurant(Base):
     phone = Column(String(50))
     whatsapp = Column(String(50))
     jd_url = Column(String(500))
+    category = Column(String(200))
     opening_hours = Column(String(200))
     scraped_at = Column(DateTime, default=datetime.utcnow)
     

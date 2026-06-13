@@ -1,0 +1,17 @@
+
+==================================================================
+Scraping single URL: https://www.justdial.com/Mumbai/Khatu-Shyam-Trading-Opposite-Pnb-Andheri-West/022PXX22-XX22-260513124544-F4H9_BZDET?trkid=&term=&ncatid=10954725&area=Narayan%20Sarovar&search=Popular%20Soya%20Bean%20in%20Narayan%20Sarovar,%20Kutch&mncatname=Soya%20Bean%20Wholesalers&ftterm=&csell=&oncatid=10954725&abd_btn=Get%20Verified%20Sellers&abd_heading=Soya%20Bean%20Wholesalers&bd=1&cat_b2b_flag=1&searchfrom=lst&thumbnail=
+==================================================================
+Failed to start browser: [WinError 5] Access is denied: 'C:\\Users\\PC\\appdata\\roaming\\undetected_chromedriver\\undetected'
+Traceback (most recent call last):
+  File "c:\Users\PC\Documents\trae_projects\Scapre for thozil\app\scraper\desktop_scraper.py", line 535, in scrape_single_url
+    driver = uc.Chrome(options=options)
+  File "C:\Users\PC\AppData\Local\Programs\Python\Python310\lib\site-packages\undetected_chromedriver\__init__.py", line 258, in __init__
+    self.patcher.auto()
+  File "C:\Users\PC\AppData\Local\Programs\Python\Python310\lib\site-packages\undetected_chromedriver\patcher.py", line 178, in auto
+    self.unzip_package(self.fetch_package())
+  File "C:\Users\PC\AppData\Local\Programs\Python\Python310\lib\site-packages\undetected_chromedriver\patcher.py", line 307, in unzip_package
+    os.makedirs(self.zip_path, mode=0o755, exist_ok=True)
+  File "C:\Users\PC\AppData\Local\Programs\Python\Python310\lib\os.py", line 225, in makedirs
+    mkdir(name, mode)
+PermissionError: [WinError 5] Access is denied: 'C:\\Users\\PC\\appdata\\roaming\\undetected_chromedriver\\undetected'

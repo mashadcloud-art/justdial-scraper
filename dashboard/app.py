@@ -1,34 +1,106 @@
+
 import streamlit as st
 import requests
 import threading
 import time
 import sys
 import os
-import streamlit as st
-import requests
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 API_URL = "http://localhost:8000/api/v1"
 
+STATE_CITIES = {
+    "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", "Tirupati", "Rajahmundry", "Kakinada"],
+    "Assam": ["Guwahati", "Silchar", "Dibrugarh", "Jorhat", "Nagaon", "Tezpur"],
+    "Bihar": ["Patna", "Gaya", "Bhagalpur", "Muzaffarpur", "Darbhanga", "Purnia"],
+    "Chhattisgarh": ["Raipur", "Bhilai", "Bilaspur", "Korba", "Durg"],
+    "Delhi NCR": ["New Delhi", "Noida", "Gurgaon", "Faridabad", "Ghaziabad"],
+    "Goa": ["Panaji", "Margao", "Vasco da Gama", "Mapusa"],
+    "Gujarat": ["Ahmedabad", "Surat", "Vadodara", "Rajkot", "Bhavnagar", "Jamnagar", "Gandhinagar"],
+    "Haryana": ["Faridabad", "Gurgaon", "Panipat", "Ambala", "Hisar", "Karnal", "Rohtak"],
+    "Himachal Pradesh": ["Shimla", "Mandi", "Dharamshala", "Solan", "Kangra"],
+    "Jharkhand": ["Ranchi", "Jamshedpur", "Dhanbad", "Bokaro", "Hazaribagh", "Deoghar"],
+    "Karnataka": ["Bangalore", "Mysore", "Mangalore", "Hubli", "Belgaum", "Gulbarga", "Davangere", "Shimoga"],
+    "Kerala": ["Thiruvananthapuram", "Kochi", "Kozhikode", "Thrissur", "Kollam", "Palakkad", "Alappuzha", "Kannur", "Kottayam"],
+    "Madhya Pradesh": ["Indore", "Bhopal", "Jabalpur", "Gwalior", "Ujjain", "Sagar", "Dewas"],
+    "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Thane", "Nashik", "Aurangabad", "Solapur", "Navi Mumbai"],
+    "Odisha": ["Bhubaneswar", "Cuttack", "Rourkela", "Berhampur", "Sambalpur", "Puri"],
+    "Punjab": ["Ludhiana", "Amritsar", "Jalandhar", "Patiala", "Bathinda", "Mohali"],
+    "Rajasthan": ["Jaipur", "Jodhpur", "Udaipur", "Kota", "Ajmer", "Bikaner", "Alwar"],
+    "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem", "Tirunelveli", "Erode"],
+    "Telangana": ["Hyderabad", "Warangal", "Nizamabad", "Karimnagar", "Khammam"],
+    "Uttar Pradesh": ["Lucknow", "Kanpur", "Agra", "Varanasi", "Meerut", "Prayagraj", "Noida", "Ghaziabad"],
+    "Uttarakhand": ["Dehradun", "Haridwar", "Roorkee", "Haldwani"],
+    "West Bengal": ["Kolkata", "Howrah", "Durgapur", "Asansol", "Siliguri", "Bardhaman"]
+}
+
 st.set_page_config(page_title="JustDial Master Control", page_icon="🍽️", layout="wide")
+st.markdown("""
+    &lt;style&gt;
+    .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; }
+    .stButton&gt;button { width: 100%; border-radius: 10px; height: 3em; }
+    &lt;/style&gt;
+""", unsafe_allow_html=True)
 
 st.sidebar.title("🍽️ JustDial Master")
-page = st.sidebar.radio("Go to", [
-    "📊 Dashboard", 
-    " Category Management",  # 🟢 NEW PAGE
-    "🤖 Scraper Control", 
-    "🛠️ Database Management"
-])
+page = st.sidebar.radio("Go to", ["📊 Dashboard", "📂 Category Management", "🤖 Scraper Control", "🛠️ Database Management"])
 
-# ... [Keep your existing helper functions] ...
+def get_stats():
+    try:
+        res = requests.get(f"{API_URL}/stats", timeout=2)
+        if res.status_code == 200: 
+            return res.json()
+    except: 
+        pass
+    return {"total_restaurants": 0, "total_images": 0, "total_menu_items": 0}
 
 # ==========================================
-# PAGE 2: CATEGORY MANAGEMENT (NEW)
+# PAGE 1: DASHBOARD
+# ==========================================
+if page == "📊 Dashboard":
+    st.title("📊 Restaurant Dashboard")
+    stats = get_stats()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🏪 Total Restaurants", stats.get('total_restaurants', 0))
+    c2.metric("🖼️ Total Images", stats.get('total_images', 0))
+    c3.metric("🍽️ Total Menu Items", stats.get('total_menu_items', 0))
+    st.divider()
+    if st.button("🔄 Refresh Data"): 
+        st.rerun()
+    try:
+        response = requests.get(f"{API_URL}/restaurants", timeout=5)
+        if response.status_code == 200:
+            restaurants = response.json()
+            for r in restaurants:
+                with st.container(border=True):
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        if r.get('image_path'): 
+                            st.image(f"http://localhost:8000/{r['image_path']}", width=300)
+                    with col2:
+                        st.subheader(r['name'])
+                        if r.get('phone'): 
+                            st.markdown(f"📞 **Phone:** {r['phone']}")
+                        if r.get('whatsapp'): 
+                            st.markdown(f"💬 **WhatsApp:** {r['whatsapp']}")
+                        if r.get('address'): 
+                            st.markdown(f"📍 **Address:** {r['address']}")
+                        if r.get('menu_items'):
+                            with st.expander(f"🍽️ View Menu ({len(r['menu_items'])} items)"):
+                                for item in r['menu_items'][:15]:
+                                    veg_icon = "🟢" if item['is_veg'] else "🔴"
+                                    st.markdown(f"{veg_icon} **{item['name']}** - ₹{item['price']}")
+    except Exception as e: 
+        st.error(f"Could not connect to API. Is it running? Error: {e}")
+
+# ==========================================
+# PAGE 2: CATEGORY MANAGEMENT
 # ==========================================
 elif page == "📂 Category Management":
     st.title("📂 Category Management")
     st.markdown("Fetch, select, and manage JustDial categories for scraping")
     
-    # Fetch Categories Button
     st.subheader("1️⃣ Fetch Categories from JustDial")
     if st.button("🔄 Fetch All Categories", type="primary"):
         with st.spinner("Fetching categories from JustDial..."):
@@ -45,7 +117,6 @@ elif page == "📂 Category Management":
     
     st.divider()
     
-    # List Categories
     st.subheader("2️⃣ Browse Categories")
     
     col1, col2 = st.columns(2)
@@ -54,7 +125,6 @@ elif page == "📂 Category Management":
     with col2:
         parent_filter = st.selectbox("Filter by Parent", ["All", "Food & Restaurants", "Health & Medical", "Education", "Accommodation", "Others"])
     
-    # Fetch categories from API
     try:
         params = {}
         if search_term:
@@ -67,7 +137,6 @@ elif page == "📂 Category Management":
             categories_data = response.json()
             st.write(f"📋 Found **{categories_data['total']}** categories")
             
-            # Display categories in a table
             if categories_data['categories']:
                 st.dataframe(
                     categories_data['categories'],
@@ -79,7 +148,6 @@ elif page == "📂 Category Management":
     
     st.divider()
     
-    # Select Categories for Scraping
     st.subheader("3️⃣ Select Categories for Scraping")
     
     col1, col2 = st.columns(2)
@@ -108,7 +176,6 @@ elif page == "📂 Category Management":
     
     st.divider()
     
-    # Show Selected Categories
     st.subheader("4️⃣ Currently Selected Categories")
     
     try:
@@ -126,96 +193,8 @@ elif page == "📂 Category Management":
     except Exception as e:
         st.error(f"Failed to load selected categories: {e}")
 
-# ... [Rest of your existing code remains the same] ...
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-API_URL = "http://localhost:8000/api/v1"
-
 # ==========================================
-# MASSIVE INDIA STATE/CITY MAP
-# ==========================================
-STATE_CITIES = {
-    "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", "Tirupati", "Rajahmundry", "Kakinada"],
-    "Assam": ["Guwahati", "Silchar", "Dibrugarh", "Jorhat", "Nagaon", "Tezpur"],
-    "Bihar": ["Patna", "Gaya", "Bhagalpur", "Muzaffarpur", "Darbhanga", "Purnia"],
-    "Chhattisgarh": ["Raipur", "Bhilai", "Bilaspur", "Korba", "Durg"],
-    "Delhi NCR": ["New Delhi", "Noida", "Gurgaon", "Faridabad", "Ghaziabad"],
-    "Goa": ["Panaji", "Margao", "Vasco da Gama", "Mapusa"],
-    "Gujarat": ["Ahmedabad", "Surat", "Vadodara", "Rajkot", "Bhavnagar", "Jamnagar", "Gandhinagar"],
-    "Haryana": ["Faridabad", "Gurgaon", "Panipat", "Ambala", "Hisar", "Karnal", "Rohtak"],
-    "Himachal Pradesh": ["Shimla", "Mandi", "Dharamshala", "Solan", "Kangra"],
-    "Jharkhand": ["Ranchi", "Jamshedpur", "Dhanbad", "Bokaro", "Hazaribagh", "Deoghar"],
-    "Karnataka": ["Bangalore", "Mysore", "Mangalore", "Hubli", "Belgaum", "Gulbarga", "Davangere", "Shimoga"],
-    "Kerala": ["Thiruvananthapuram", "Kochi", "Kozhikode", "Thrissur", "Kollam", "Palakkad", "Alappuzha", "Kannur", "Kottayam"],
-    "Madhya Pradesh": ["Indore", "Bhopal", "Jabalpur", "Gwalior", "Ujjain", "Sagar", "Dewas"],
-    "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Thane", "Nashik", "Aurangabad", "Solapur", "Navi Mumbai"],
-    "Odisha": ["Bhubaneswar", "Cuttack", "Rourkela", "Berhampur", "Sambalpur", "Puri"],
-    "Punjab": ["Ludhiana", "Amritsar", "Jalandhar", "Patiala", "Bathinda", "Mohali"],
-    "Rajasthan": ["Jaipur", "Jodhpur", "Udaipur", "Kota", "Ajmer", "Bikaner", "Alwar"],
-    "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem", "Tirunelveli", "Erode"],
-    "Telangana": ["Hyderabad", "Warangal", "Nizamabad", "Karimnagar", "Khammam"],
-    "Uttar Pradesh": ["Lucknow", "Kanpur", "Agra", "Varanasi", "Meerut", "Prayagraj", "Noida", "Ghaziabad"],
-    "Uttarakhand": ["Dehradun", "Haridwar", "Roorkee", "Haldwani"],
-    "West Bengal": ["Kolkata", "Howrah", "Durgapur", "Asansol", "Siliguri", "Bardhaman"]
-}
-
-# ==========================================
-# PAGE SETUP
-# ==========================================
-st.set_page_config(page_title="JustDial Master Control", page_icon="🍽️", layout="wide")
-st.markdown("""
-    <style>
-    .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; }
-    .stButton>button { width: 100%; border-radius: 10px; height: 3em; }
-    </style>
-""", unsafe_allow_html=True)
-
-st.sidebar.title("🍽️ JustDial Master")
-page = st.sidebar.radio("Go to", ["📊 Dashboard", "🤖 Scraper Control", "🛠️ Database Management"])
-
-def get_stats():
-    try:
-        res = requests.get(f"{API_URL}/stats", timeout=2)
-        if res.status_code == 200: return res.json()
-    except: pass
-    return {"total_restaurants": 0, "total_images": 0, "total_menu_items": 0}
-
-# ==========================================
-# PAGE 1: DASHBOARD
-# ==========================================
-if page == "📊 Dashboard":
-    st.title("📊 Restaurant Dashboard")
-    stats = get_stats()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("🏪 Total Restaurants", stats.get('total_restaurants', 0))
-    c2.metric("🖼️ Total Images", stats.get('total_images', 0))
-    c3.metric("🍽️ Total Menu Items", stats.get('total_menu_items', 0))
-    st.divider()
-    if st.button("🔄 Refresh Data"): st.rerun()
-    try:
-        response = requests.get(f"{API_URL}/restaurants", timeout=5)
-        if response.status_code == 200:
-            restaurants = response.json()
-            for r in restaurants:
-                with st.container(border=True):
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        if r.get('image_path'): st.image(f"http://localhost:8000/{r['image_path']}", width=300)
-                    with col2:
-                        st.subheader(r['name'])
-                        if r.get('phone'): st.markdown(f"📞 **Phone:** {r['phone']}")
-                        if r.get('whatsapp'): st.markdown(f"💬 **WhatsApp:** {r['whatsapp']}")
-                        if r.get('address'): st.markdown(f"📍 **Address:** {r['address']}")
-                        if r.get('menu_items'):
-                            with st.expander(f"🍽️ View Menu ({len(r['menu_items'])} items)"):
-                                for item in r['menu_items'][:15]:
-                                    veg_icon = "🟢" if item['is_veg'] else "🔴"
-                                    st.markdown(f"{veg_icon} **{item['name']}** - ₹{item['price']}")
-    except Exception as e: st.error(f"Could not connect to API. Is it running? Error: {e}")
-
-# ==========================================
-# PAGE 2: SCRAPER CONTROL (NEW UI)
+# PAGE 3: SCRAPER CONTROL
 # ==========================================
 elif page == "🤖 Scraper Control":
     st.title("🤖 Enterprise Scraper Control")
@@ -223,7 +202,6 @@ elif page == "🤖 Scraper Control":
     
     st.divider()
     
-    # --- 1. LOCATION SELECTION ---
     st.subheader("🌍 1. Select Locations")
     col1, col2 = st.columns(2)
     
@@ -237,7 +215,6 @@ elif page == "🤖 Scraper Control":
     with col2:
         selected_cities = st.multiselect("Select City/Cities", sorted(list(set(available_cities))))
         
-    # --- 2. SETTINGS ---
     st.divider()
     st.subheader("⚙️ 2. Scrape Settings")
     col3, col4 = st.columns(2)
@@ -251,7 +228,6 @@ elif page == "🤖 Scraper Control":
         
     st.divider()
     
-    # --- 3. EXECUTION ---
     st.subheader("🚀 3. Execute")
     col5, col6 = st.columns(2)
     
@@ -301,7 +277,7 @@ elif page == "🤖 Scraper Control":
         st.info(f"🎯 **Status:** {st.session_state['scrape_status']}")
 
 # ==========================================
-# PAGE 3: DATABASE MANAGEMENT
+# PAGE 4: DATABASE MANAGEMENT
 # ==========================================
 elif page == "🛠️ Database Management":
     st.title("🛠️ Database Management")
@@ -318,12 +294,16 @@ elif page == "🛠️ Database Management":
         if st.button("Execute Delete Duplicates", type="primary"):
             try:
                 res = requests.post(f"{API_URL}/delete-duplicates", timeout=10)
-                if res.status_code == 200: st.success(f"✅ Deleted {res.json().get('deleted', 0)} duplicates!")
-            except Exception as e: st.error(f"Error: {e}")
+                if res.status_code == 200: 
+                    st.success(f"✅ Deleted {res.json().get('deleted', 0)} duplicates!")
+            except Exception as e: 
+                st.error(f"Error: {e}")
     with col2:
         st.markdown("### 💣 Danger Zone")
         if st.button("Clear All Data"):
             try:
                 res = requests.post(f"{API_URL}/clear-all", timeout=10)
-                if res.status_code == 200: st.success("✅ All data cleared!")
-            except Exception as e: st.error(f"Error: {e}")
+                if res.status_code == 200: 
+                    st.success("✅ All data cleared!")
+            except Exception as e: 
+                st.error(f"Error: {e}")
