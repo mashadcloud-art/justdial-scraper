@@ -23,6 +23,11 @@ UPLOAD_DIR = os.path.join(settings.DATA_FOLDER, "uploaded_images")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ==========================================
+# ROUTER INITIALIZATION
+# ==========================================
+router = APIRouter()
+
+# ==========================================
 # 1. UPLOAD RESTAURANT (Existing)
 # ==========================================
 @router.post("/upload-restaurant", status_code=201)
