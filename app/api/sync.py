@@ -638,3 +638,32 @@ def trigger_adb_search(
 def get_adb_status():
     global adb_search_in_progress
     return {"running": adb_search_in_progress}
+
+@router.get("/adb/screenshot")
+def get_adb_screenshot():
+    """Captures a screenshot from the active ADB emulator and returns it as a PNG file."""
+    import subprocess
+    import os
+    from fastapi.responses import FileResponse
+    
+    if os.name == "nt":
+        adb_path = os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+        target = ""
+    else:
+        adb_path = "adb"
+        target = "-s localhost:5555"
+        
+    img_path = "/tmp/emulator_screen.png" if os.name != "nt" else "emulator_screen.png"
+    
+    try:
+        # Capture screenshot to emulator SD card
+        subprocess.check_call(f'"{adb_path}" {target} shell screencap -p /sdcard/screen.png', shell=True)
+        # Pull to local server directory
+        subprocess.check_call(f'"{adb_path}" {target} pull /sdcard/screen.png {img_path}', shell=True)
+        
+        if os.path.exists(img_path):
+            return FileResponse(img_path, media_type="image/png")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to pull screenshot from emulator.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
