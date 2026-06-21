@@ -4,7 +4,7 @@ import shutil
 import datetime
 import json
 import traceback
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 
@@ -39,9 +39,14 @@ def upload_restaurant(
     source_url: str = Form(...),
     category: Optional[str] = Form(None),
     opening_hours: Optional[str] = Form(None),
+    district: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
     menu_json: Optional[str] = Form(None),
     amenities_json: Optional[str] = Form(None),
     image_categories: Optional[str] = Form(None),
+    image_urls_json: Optional[str] = Form(None),
+    latitude: Optional[str] = Form(None),
+    longitude: Optional[str] = Form(None),
     images: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db)
 ):
@@ -50,19 +55,28 @@ def upload_restaurant(
         
         if existing:
             restaurant = existing
-            restaurant.phone = phone or existing.phone
-            restaurant.whatsapp = whatsapp or existing.whatsapp
-            restaurant.address = address or existing.address
-            restaurant.opening_hours = opening_hours or existing.opening_hours
-            restaurant.category = category or existing.category
+            # Only overwrite fields if new value is provided (never blank out existing data)
+            if phone: restaurant.phone = phone
+            if whatsapp: restaurant.whatsapp = whatsapp
+            if address: restaurant.address = address
+            if opening_hours: restaurant.opening_hours = opening_hours
+            if category: restaurant.category = category
+            if district: restaurant.district = district
+            if state: restaurant.state = state
+            if latitude: restaurant.latitude = latitude
+            if longitude: restaurant.longitude = longitude
             restaurant.scraped_at = datetime.datetime.utcnow()
+            # Only clear menus/amenities to re-enrich — NOT images (keep mobile API images)
             restaurant.menu_items.clear()
             restaurant.amenities.clear()
-            restaurant.images.clear()
+            # Only clear images if new ones are being uploaded (don't wipe mobile API images)
+            if images or image_urls_json:
+                restaurant.images.clear()
         else:
             restaurant = models.Restaurant(
                 name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
-                jd_url=source_url, category=category or "", opening_hours=opening_hours or ""
+                jd_url=source_url, category=category or "", opening_hours=opening_hours or "",
+                district=district or "", state=state or "", latitude=latitude or "", longitude=longitude or ""
             )
             db.add(restaurant)
             db.flush()
@@ -97,20 +111,36 @@ def upload_restaurant(
             except Exception as cat_e:
                 pass  # Use empty list
 
-        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_')).rstrip()
-        for i, img_file in enumerate(images):
+        if image_urls_json:
             try:
-                if img_file and img_file.filename:
-                    cat = categories[i] if i < len(categories) else "general"
-                    safe_cat = "".join(c for c in cat if c.isalnum()).rstrip() or "general"
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                    filename = f"{safe_name}_{safe_cat}_{i}_{timestamp}.jpg"
-                    image_path = os.path.join(UPLOAD_DIR, filename)
-                    with open(image_path, "wb") as buffer:
-                        shutil.copyfileobj(img_file.file, buffer)
-                    db.add(models.RestaurantImage(restaurant_id=restaurant_id, image_path=image_path, category=cat, is_primary=(i == 0)))
-            except Exception as img_e:
-                pass  # Skip image fails, still save rest
+                urls_data = json.loads(image_urls_json)
+                for i, item in enumerate(urls_data):
+                    img_url = item.get('path')
+                    cat = item.get('category', 'general')
+                    if img_url:
+                        db.add(models.RestaurantImage(
+                            restaurant_id=restaurant_id,
+                            image_path=img_url,
+                            category=cat,
+                            is_primary=(i == 0)
+                        ))
+            except Exception as e:
+                pass
+        else:
+            safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_')).rstrip()
+            for i, img_file in enumerate(images):
+                try:
+                    if img_file and img_file.filename:
+                        cat = categories[i] if i < len(categories) else "general"
+                        safe_cat = "".join(c for c in cat if c.isalnum()).rstrip() or "general"
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                        filename = f"{safe_name}_{safe_cat}_{i}_{timestamp}.jpg"
+                        image_path = os.path.join(UPLOAD_DIR, filename)
+                        with open(image_path, "wb") as buffer:
+                            shutil.copyfileobj(img_file.file, buffer)
+                        db.add(models.RestaurantImage(restaurant_id=restaurant_id, image_path=image_path, category=cat, is_primary=(i == 0)))
+                except Exception as img_e:
+                    pass  # Skip image fails, still save rest
 
         db.commit()
         return {"message": "Success", "restaurant_id": restaurant_id}
@@ -132,12 +162,31 @@ def upload_restaurant(
 # 2. GET ALL RESTAURANTS (Existing)
 # ==========================================
 @router.get("/restaurants")
-def get_restaurants(db: Session = Depends(get_db)):
-    restaurants = db.query(models.Restaurant).options(
+def get_restaurants(
+    page: int = 1, 
+    limit: int = 10000, 
+    district: Optional[str] = None, 
+    state: Optional[str] = None, 
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Restaurant)
+    
+    if state:
+        query = query.filter(models.Restaurant.state == state)
+    if district:
+        query = query.filter(models.Restaurant.district == district)
+    if category:
+        query = query.filter(models.Restaurant.category == category)
+        
+    total_count = query.count()
+    
+    restaurants = query.options(
         selectinload(models.Restaurant.images),
         selectinload(models.Restaurant.menu_items),
         selectinload(models.Restaurant.amenities)
-    ).all()
+    ).order_by(models.Restaurant.id.desc()).offset((page - 1) * limit).limit(limit).all()
+    
     result = []
     for r in restaurants:
         primary_img = next((img.image_path for img in r.images if img.is_primary), None)
@@ -145,14 +194,22 @@ def get_restaurants(db: Session = Depends(get_db)):
             
         menu_list = [{"name": m.name, "price": m.price, "is_veg": m.is_veg} for m in r.menu_items]
         amenities_list = [{"category": a.category, "value": a.value} for a in r.amenities]
-        images_list = [img.image_path for img in r.images]
+        images_list = [{"path": img.image_path, "category": img.category or "general"} for img in r.images]
         
         result.append({
             "id": r.id, "name": r.name, "phone": r.phone, "whatsapp": r.whatsapp, "address": r.address,
             "jd_url": r.jd_url, "category": r.category, "opening_hours": r.opening_hours,
+            "district": r.district, "state": r.state,
+            "latitude": r.latitude, "longitude": r.longitude,
             "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list
         })
-    return result
+        
+    return {
+        "data": result,
+        "total_count": total_count,
+        "page": page,
+        "limit": limit
+    }
 
 # ==========================================
 # 3. NEW: GET STATS (For the Dashboard)
@@ -253,3 +310,331 @@ def clear_all(db: Session = Depends(get_db)):
         threading.Thread(target=delete_all_files).start()
     
     return {"status": "success"}
+
+# ==========================================
+# 7. TRIGGER SCRAPE (From Web UI)
+# ==========================================
+from app.scraper.desktop_scraper import scrape_city as selenium_scrape_city
+from app.scraper.playwright_scraper import scrape_city as playwright_scrape_city
+from app.scraper.api_scraper import scrape_city as api_scrape_city
+from app.scraper.constants import get_cities_to_scrape
+from app.scraper.logger import scraper_logger, log
+
+scraping_in_progress = False
+scraping_started_at = None  # Track when scraping started
+
+@router.post("/scrape/reset")
+def reset_scrape_lock():
+    """Force-reset the scrape lock if a task got stuck"""
+    global scraping_in_progress, scraping_started_at
+    was_locked = scraping_in_progress
+    scraping_in_progress = False
+    scraping_started_at = None
+    return {"status": "reset", "was_locked": was_locked, "message": "Scrape lock cleared."}
+
+@router.post("/scrape")
+def trigger_scrape(
+    state: str,
+    district: str,
+    main_cat: str,
+    subcat: str,
+    max_limit: int = 10,
+    start_page: int = 1,
+    fast_mode: bool = False,
+    engine: str = "playwright",
+    background_tasks: BackgroundTasks = None
+):
+    global scraping_in_progress, scraping_started_at
+    if scraping_in_progress:
+        # Auto-expire lock if stuck for more than 30 minutes
+        import time as _time
+        if scraping_started_at and (_time.time() - scraping_started_at) > 1800:
+            scraping_in_progress = False
+            scraping_started_at = None
+            log("⚠️ Scrape lock auto-expired after 30 minutes. Starting fresh.")
+        else:
+            raise HTTPException(status_code=400, detail="Scrape task is already in progress.")
+        
+    scraper_logger.clear()
+        
+    def run_sync_scrape():
+        global scraping_in_progress, scraping_started_at
+        import time as _time
+        scraping_started_at = _time.time()
+        try:
+            scraping_in_progress = True
+            cities = get_cities_to_scrape(state, district)
+            log(f"Orchestrator: Will scrape {len(cities)} cities.")
+            for city in cities:
+                if city == "All": continue
+                log(f"--- Starting scrape for {city} ---")
+                try:
+                    if engine == "api":
+                        api_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                    elif engine == "api_edge":
+                        api_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                    elif engine == "playwright":
+                        playwright_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                    elif engine == "playwright_edge":
+                        playwright_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                    elif engine == "edge":
+                        selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                    else:
+                        selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                except Exception as inner_e:
+                    log(f"Error scraping {city}: {inner_e}", ok=False)
+        except Exception as e:
+            log(f"Scrape task failed: {e}", ok=False)
+        finally:
+            scraping_in_progress = False
+            scraping_started_at = None
+            log("Scrape task fully completed.")
+            
+    if background_tasks:
+        background_tasks.add_task(run_sync_scrape)
+        return {"status": "started", "message": "Scraping task started in the background."}
+    else:
+        import threading
+        threading.Thread(target=run_sync_scrape, daemon=True).start()
+        return {"status": "started", "message": "Scraping task started."}
+
+@router.get("/scrape/status")
+def get_scrape_status(last_idx: int = 0):
+    global scraping_in_progress, scraping_started_at
+    import time as _time
+    new_logs, next_idx = scraper_logger.get_logs(last_idx)
+    running_for = None
+    if scraping_in_progress and scraping_started_at:
+        running_for = int(_time.time() - scraping_started_at)
+    # Auto-expire after 30 min
+    if scraping_in_progress and running_for and running_for > 1800:
+        scraping_in_progress = False
+        scraping_started_at = None
+    return {
+        "running": scraping_in_progress,
+        "running_for_seconds": running_for,
+        "logs": new_logs,
+        "next_idx": next_idx
+    }
+
+# ==========================================
+# 8. TRIGGER SINGLE URL SCRAPE (From Web UI)
+# ==========================================
+from app.scraper.desktop_scraper import scrape_single_url
+
+@router.post("/scrape/single")
+def trigger_single_scrape(url: str, fast_mode: bool = False, engine: str = "playwright", background_tasks: BackgroundTasks = None):
+    global scraping_in_progress, scraping_started_at
+    if scraping_in_progress:
+        import time as _time
+        if scraping_started_at and (_time.time() - scraping_started_at) > 1800:
+            scraping_in_progress = False
+            scraping_started_at = None
+        else:
+            raise HTTPException(status_code=400, detail="Scrape task is already in progress.")
+        
+    scraper_logger.clear()
+        
+    def run_single_scrape():
+        global scraping_in_progress, scraping_started_at
+        import time as _time
+        scraping_started_at = _time.time()
+        try:
+            scraping_in_progress = True
+            browser_type = "edge" if engine in ["edge", "playwright_edge"] else "chrome"
+            log(f"Starting single URL scrape for: {url} using {engine} ({browser_type})")
+            scrape_single_url(url, engine=engine, browser_type=browser_type)
+        except Exception as e:
+            log(f"Single scrape failed: {e}", ok=False)
+        finally:
+            scraping_in_progress = False
+            scraping_started_at = None
+            log("Single scrape task completed.")
+
+    if background_tasks:
+        background_tasks.add_task(run_single_scrape)
+        return {"status": "started", "message": "Single URL scraping task started in the background."}
+    else:
+        import threading
+        threading.Thread(target=run_single_scrape, daemon=True).start()
+        return {"status": "started", "message": "Single URL scraping task started."}
+
+# ==========================================
+# LISTING COUNT — fetch total from JustDial
+# ==========================================
+@router.get("/listing-count")
+def get_listing_count(city: str, category: str):
+    """Fetch total listing count from JustDial using Selenium"""
+    try:
+        import undetected_chromedriver as uc
+        from bs4 import BeautifulSoup
+
+        url = f"https://www.justdial.com/{city}/{category.replace(' ', '-')}"
+
+        options = uc.ChromeOptions()
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-position=-32000,-32000") # Off-screen magic
+        options.add_argument("--window-size=1280,720")
+
+        # Define chrome_drivers_dir
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
+        chrome_drivers_dir = os.path.join(project_root, "chrome_drivers")
+        os.makedirs(chrome_drivers_dir, exist_ok=True)
+
+        try:
+            driver = uc.Chrome(options=options, use_subprocess=True, version_main=149, patcher_kwargs={"target_dir": chrome_drivers_dir})
+        except Exception as e:
+            print(f"⚠️ uc.Chrome with version_main=149 failed in listing-count: {e}. Trying autodetect...")
+            try:
+                driver = uc.Chrome(options=options, use_subprocess=True, patcher_kwargs={"target_dir": chrome_drivers_dir})
+            except Exception as e2:
+                print(f"❌ uc.Chrome autodetect failed in listing-count: {e2}. Falling back to standard Chrome...")
+                from selenium import webdriver
+                driver = webdriver.Chrome(options=options)
+        try:
+            driver.get(url)
+            
+            # Wait up to 10 seconds for the redirect to the nct- category page
+            import time
+            for _ in range(10):
+                if 'nct-' in driver.current_url:
+                    break
+                time.sleep(1)
+            
+            time.sleep(3)  # wait for JS to render after redirect
+            
+            from app.api.categories import _extract_count_from_html
+            count = _extract_count_from_html(driver.page_source, category, None)
+            
+            if count:
+                return {"count": count, "city": city, "category": category}
+            return {"count": None}
+        finally:
+            try:
+                driver.quit()
+            except:
+                pass
+    except Exception as e:
+        print(f"Failed to fetch count: {e}")
+        return {"count": None}
+
+# ==========================================
+# PREVIEW PAGE — fetch names without saving
+# ==========================================
+from app.scraper.playwright_scraper import preview_page
+
+@router.get("/preview-page")
+def get_preview_page(city: str, category: str, page: int = 1):
+    """Preview names from a specific page without saving them."""
+    try:
+        results = preview_page(city, category, category, page)
+        return {"status": "success", "data": results}
+    except Exception as e:
+        print(f"Preview failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+# ==========================================
+# EMULATOR JSON INGESTION
+# ==========================================
+@router.post("/ingest-emulator-json")
+async def ingest_emulator_json(request: Request, district: str = "Unknown"):
+    """
+    Accepts raw JSON payload intercepted from JustDial mobile API (via HTTP Toolkit).
+    Parses it and inserts it into the database.
+    """
+    try:
+        from app.scraper.emulator_parser import process_emulator_json
+        
+        json_data = await request.json()
+        success_count = process_emulator_json(json_data, district)
+        
+        return {"status": "success", "message": f"Successfully ingested {success_count} restaurants.", "count": success_count}
+    except Exception as e:
+        print(f"Emulator JSON Ingestion failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+@router.post("/ingest-saved-folder")
+def ingest_saved_folder(district: str = "Unknown", folder_path: str = r"c:\Users\PC\Desktop\JustDial_JSONs"):
+    """
+    Scans the specified folder on the desktop, reads all JSON files,
+    combines them, and uploads them to the database.
+    """
+    try:
+        from app.scraper.emulator_parser import process_emulator_json
+        import glob
+        
+        if not os.path.exists(folder_path):
+            return {"status": "error", "message": f"Folder does not exist: {folder_path}"}
+            
+        json_files = glob.glob(os.path.join(folder_path, "*.json"))
+        if not json_files:
+            return {"status": "success", "message": "No JSON files found in folder.", "count": 0}
+            
+        total_success = 0
+        for file_path in json_files:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                count = process_emulator_json(data, district)
+                total_success += count
+                # Optional: Delete or rename file after successful ingestion so it isn't ingested again
+                # os.rename(file_path, file_path + ".ingested")
+            except Exception as file_err:
+                print(f"Failed to ingest file {file_path}: {file_err}")
+                
+        return {
+            "status": "success",
+            "message": f"Successfully bulk uploaded {total_success} listings from {len(json_files)} files.",
+            "count": total_success
+        }
+    except Exception as e:
+        print(f"Bulk folder ingestion failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+# ==========================================
+# 9. TRIGGER ADB LOCATION SEARCH (Emulator Bridge)
+# ==========================================
+from app.scraper.adb_location_search import automate_location_search
+
+adb_search_in_progress = False
+
+@router.post("/adb/search")
+def trigger_adb_search(
+    location: str,
+    category: str = "Restaurants",
+    scrolls: int = 15,
+    background_tasks: BackgroundTasks = None
+):
+    global adb_search_in_progress
+    if adb_search_in_progress:
+        raise HTTPException(status_code=400, detail="ADB search is already in progress on the emulator.")
+        
+    # Clear logs so the user sees fresh logs for their emulator run
+    scraper_logger.clear()
+        
+    def run_adb_search():
+        global adb_search_in_progress
+        try:
+            adb_search_in_progress = True
+            log(f"ADB Bridge: Starting emulator search for category '{category}' in location '{location}' with {scrolls} scrolls.")
+            automate_location_search([location], category, scrolls)
+            log("ADB Bridge: Completed search successfully.")
+        except Exception as e:
+            log(f"ADB Bridge: Search failed: {e}", ok=False)
+        finally:
+            adb_search_in_progress = False
+            
+    if background_tasks:
+        background_tasks.add_task(run_adb_search)
+        return {"status": "started", "message": "ADB location search started in the background."}
+    else:
+        import threading
+        threading.Thread(target=run_adb_search, daemon=True).start()
+        return {"status": "started", "message": "ADB location search started."}
+
+@router.get("/adb/status")
+def get_adb_status():
+    global adb_search_in_progress
+    return {"running": adb_search_in_progress}
