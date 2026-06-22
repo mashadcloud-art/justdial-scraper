@@ -80,7 +80,7 @@ type Business = {
   amenities: { category: string; value: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | { type: "detail"; business: Business };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
 
@@ -384,7 +384,7 @@ function Dashboard() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const API = "/api/v1";
-  const LOCAL_API = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "::1" ? "/api/v1" : "http://localhost:8000/api/v1";
+  const LOCAL_API = "/api/v1";
 
   // Results
   const [rows, setRows] = useState<Business[]>([]);
@@ -1033,8 +1033,8 @@ function Dashboard() {
     <div className={cn(
       "relative flex bg-background text-foreground overflow-hidden transition-all duration-300",
       maximized
-        ? "w-screen h-screen"                                           // full browser window
-        : "w-[1024px] h-[600px] mx-auto mt-4 rounded-xl ring-1 ring-border shadow-2xl" // default app size
+        ? "w-full h-screen"                                           // full browser window
+        : "w-full max-w-6xl h-[85vh] sm:h-[800px] mx-auto sm:mt-4 rounded-none sm:rounded-xl ring-0 sm:ring-1 ring-border shadow-none sm:shadow-2xl" // responsive windowed mode
     )}>
 
       {/* ── Sidebar ── */}
@@ -1070,6 +1070,7 @@ function Dashboard() {
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => setActiveTab("scraper")}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<MapPin className="size-4" />}         label="Maps Scraper"  active={activeTab === "gmaps"}     onClick={() => setActiveTab("gmaps")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
@@ -1151,7 +1152,7 @@ function Dashboard() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -1202,16 +1203,16 @@ function Dashboard() {
 
             {/* ── STAT CARDS ── */}
             {maximized ? (
-              /* Maximized: 4 wide cards in a single row */
-              <div className="grid grid-cols-4 gap-4">
+              /* Maximized: Responsive grid */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCardLg label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-4" />} live />
                 <StatCardLg label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-4" />} />
                 <StatCardLg label="Images Collected" value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-4" />} />
                 <StatCardLg label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-4" />} />
               </div>
             ) : (
-              /* Default: 4 cards in a single horizontal row */
-              <div className="grid grid-cols-4 gap-2">
+              /* Default: Responsive horizontal row */
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 <StatCard label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-3.5" />} live />
                 <StatCard label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-3.5" />} />
                 <StatCard label="Images"           value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-3.5" />} />
@@ -1224,7 +1225,7 @@ function Dashboard() {
               maximized ? (
                 /* ══ MAXIMIZED SCRAPER LAYOUT ══ */
                 <>
-                  <div className="grid grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {/* Location & Category — spacious */}
                     <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
                       <div className="flex items-center gap-2">
@@ -1245,7 +1246,7 @@ function Dashboard() {
                           className="bg-transparent text-sm flex-1 outline-none placeholder:text-muted-foreground"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <FormField label="State / UT"><StyledSelectLg value={state} onChange={setState} options={STATES} /></FormField>
                         <FormField label="District / City"><StyledSelectLg value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
                         <FormField label="Main Category">
@@ -1355,7 +1356,7 @@ function Dashboard() {
                             <Progress value={progress} className="h-1.5" />
                           </div>
                         )}
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <Button onClick={startScraping} disabled={running} className="h-10 text-white font-medium shadow-brand" style={{ background: running ? undefined : "var(--gradient-brand)" }}>
                             <Play className="size-4 mr-2" />{running ? "Running..." : "Start Scraping"}
                           </Button>
@@ -1385,8 +1386,8 @@ function Dashboard() {
                             <p className="text-xs text-muted-foreground leading-relaxed">
                               Automatically launch JustDial, type the location PIN/Town, and scroll the listing page to capture payloads.
                             </p>
-                            <div className="grid grid-cols-2 gap-3 items-end">
-                              <div className="col-span-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                              <div className="col-span-1 sm:col-span-2">
                                 <FormField label="Target Location (PIN or Town)">
                                   <input 
                                     type="text" 
@@ -1622,7 +1623,7 @@ function Dashboard() {
                 </>
               ) : (
                 /* ══ DEFAULT COMPACT SCRAPER LAYOUT ══ */
-                <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 flex-1 min-h-0">
                   {/* Location & Category */}
                   <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant flex flex-col gap-2 flex-1 min-h-0">
                     <div className="flex items-center gap-2">
@@ -1645,7 +1646,7 @@ function Dashboard() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <FormField label="State / UT"><StyledSelect value={state} onChange={setState} options={STATES} /></FormField>
                       <FormField label="District / City"><StyledSelect value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
                       <FormField label="Main Category">
@@ -2101,6 +2102,11 @@ function Dashboard() {
                   </div>
                 </section>
               )
+            )}
+
+            {/* ── GOOGLE MAPS TAB ── */}
+            {(activeTab as any) === "gmaps" && (
+              <GMapsPanel API={API} addLog={addLog} onDone={async () => { await fetchRestaurants(); await fetchStats(); }} />
             )}
 
             {/* ── DETAIL TAB ── */}
@@ -2823,6 +2829,253 @@ function Lightbox({ data, onChange, onClose }: { data: { images: string[]; index
           <div className="text-sm font-medium">{name}</div>
           <div className="text-xs text-white/60 font-mono mt-1">{index + 1} / {images.length}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Google Maps Scraper Panel ────────────────────────────────
+function GMapsPanel({ API, addLog, onDone }: {
+  API: string;
+  addLog: (ok: boolean, msg: string) => void;
+  onDone: () => Promise<void>;
+}) {
+  const [query, setQuery] = useState("Hospitals in Abu Dhabi");
+  const [maxResults, setMaxResults] = useState(20);
+  const [scrollCount, setScrollCount] = useState(5);
+  const [district, setDistrict] = useState("");
+  const [uploadToDb, setUploadToDb] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<{ time: string; ok: boolean; msg: string }[]>([]);
+  const [intent, setIntent] = useState<any>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  function addPanelLog(ok: boolean, msg: string) {
+    setLogs(l => [...l, { time: new Date().toLocaleTimeString("en-GB", { hour12: false }), ok, msg }]);
+    addLog(ok, msg);
+  }
+
+  async function generateIntent() {
+    try {
+      const res = await fetch(`${API}/gmaps/generate-intent?query=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIntent(data);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function startScrape() {
+    if (running || !query.trim()) return;
+    setRunning(true);
+    setLogs([]);
+    addPanelLog(true, `Starting Google Maps scrape: ${query}`);
+
+    try {
+      const res = await fetch(`${API}/gmaps/scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          max_results: maxResults,
+          scroll_count: scrollCount,
+          district,
+          upload_to_db: uploadToDb,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        addPanelLog(false, `Failed to start: ${err}`);
+        setRunning(false);
+        return;
+      }
+
+      addPanelLog(true, "Scrape started. Polling for updates...");
+      let lastIdx = 0;
+
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch(`${API}/gmaps/status?last_idx=${lastIdx}`);
+          if (!sr.ok) return;
+          const data = await sr.json();
+          if (data.logs?.length) {
+            setLogs(l => [...l, ...data.logs]);
+            lastIdx = data.next_idx;
+          }
+          if (!data.running) {
+            clearInterval(poll);
+            setRunning(false);
+            addPanelLog(true, "Google Maps scrape completed!");
+            await onDone();
+          }
+        } catch { /* ignore */ }
+      }, 2000);
+    } catch (e: any) {
+      addPanelLog(false, `Error: ${e.message}`);
+      setRunning(false);
+    }
+  }
+
+  async function stopScrape() {
+    await fetch(`${API}/gmaps/reset`, { method: "POST" });
+    setRunning(false);
+    addPanelLog(false, "Scrape stopped.");
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-5">
+      {/* Left — Config */}
+      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+        <div className="flex items-center gap-2">
+          <MapPin className="size-4 text-brand" />
+          <h3 className="text-base font-semibold">Google Maps Scraper</h3>
+          <span className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold uppercase">ADB</span>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Scrapes Google Maps via ADB on your connected Android device/emulator.
+          No API key needed. Data saves to your local database.
+        </p>
+
+        {/* Query */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Search Query</label>
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="e.g. Hospitals in Abu Dhabi"
+            className="w-full h-10 px-3 rounded-lg ring-1 ring-border bg-background text-sm outline-none focus:ring-brand transition-all"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Max Results</label>
+            <input
+              type="number"
+              value={maxResults}
+              onChange={e => setMaxResults(Number(e.target.value))}
+              min={1} max={200}
+              className="w-full h-10 px-3 rounded-lg ring-1 ring-border bg-background text-sm outline-none focus:ring-brand"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scroll Count</label>
+            <input
+              type="number"
+              value={scrollCount}
+              onChange={e => setScrollCount(Number(e.target.value))}
+              min={1} max={20}
+              className="w-full h-10 px-3 rounded-lg ring-1 ring-border bg-background text-sm outline-none focus:ring-brand"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">District (for DB)</label>
+          <input
+            value={district}
+            onChange={e => setDistrict(e.target.value)}
+            placeholder="e.g. Abu Dhabi (optional)"
+            className="w-full h-10 px-3 rounded-lg ring-1 ring-border bg-background text-sm outline-none focus:ring-brand"
+          />
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <Checkbox checked={uploadToDb} onCheckedChange={v => setUploadToDb(!!v)} />
+          <span className="text-xs">Upload results to database</span>
+        </label>
+
+        <div className="flex gap-2 pt-1">
+          <Button
+            onClick={startScrape}
+            disabled={running || !query.trim()}
+            className="flex-1 text-white shadow-brand"
+            style={{ background: "var(--gradient-brand)" }}
+          >
+            <Play className="size-3.5 mr-1.5" />
+            {running ? "Running..." : "Start Scrape"}
+          </Button>
+          {running && (
+            <Button variant="outline" onClick={stopScrape} className="px-3">
+              <Square className="size-3.5" />
+            </Button>
+          )}
+          <Button variant="outline" onClick={generateIntent} className="px-3" title="Preview ADB commands">
+            <Activity className="size-3.5" />
+          </Button>
+        </div>
+
+        {/* Device info */}
+        <div className="rounded-lg bg-muted/30 ring-1 ring-border p-3 space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Device Info</p>
+          <p className="text-xs">🖥️ Runs on: <span className="text-foreground font-medium">Your local PC</span></p>
+          <p className="text-xs">📱 Device: <span className="text-foreground font-medium">ADB connected Android</span></p>
+          <p className="text-xs">☁️ Cloud: <span className="text-emerald-400 font-medium">None — 100% local</span></p>
+          <p className="text-xs">💾 Saves to: <span className="text-foreground font-medium">data/justdial.db</span></p>
+        </div>
+      </section>
+
+      {/* Right — Logs + ADB Preview */}
+      <div className="space-y-4">
+        {/* Live Log */}
+        <section className="p-4 rounded-2xl ring-1 ring-border bg-card shadow-elegant">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-brand" />
+              <span className="text-sm font-semibold">Activity Log</span>
+              {running && <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />}
+            </div>
+            <button
+              onClick={() => setLogs([])}
+              className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+          <div ref={logRef} className="h-48 overflow-y-auto font-mono text-xs space-y-0.5 bg-muted/20 rounded-lg p-3">
+            {logs.length === 0 ? (
+              <p className="text-muted-foreground text-center py-6">Logs will appear here when scraping starts...</p>
+            ) : logs.map((e, i) => (
+              <div key={i} className="flex gap-2 leading-5">
+                <span className="text-muted-foreground shrink-0">[{e.time}]</span>
+                <span className={e.ok ? "text-emerald-400" : "text-red-400"}>{e.ok ? "✓" : "✗"}</span>
+                <span className="text-foreground/80 break-all">{e.msg}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ADB Intent Preview */}
+        {intent && (
+          <section className="p-4 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3">
+            <div className="flex items-center gap-2">
+              <Link2 className="size-4 text-brand" />
+              <span className="text-sm font-semibold">ADB Commands Preview</span>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Open Maps</p>
+                <code className="block text-[10px] font-mono bg-muted/40 rounded p-2 break-all text-emerald-400">
+                  {intent.adb_intent}
+                </code>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Extraction Pipeline</p>
+                <div className="bg-muted/40 rounded p-2 space-y-0.5">
+                  {[...intent.list_extraction, "—", ...intent.detail_extraction].map((step: string, i: number) => (
+                    <p key={i} className="text-[10px] font-mono text-foreground/70">{step}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

@@ -51,6 +51,30 @@ def get_stats():
         pass
     return {"total_restaurants": 0, "total_images": 0, "total_menu_items": 0}
 
+def get_all_restaurants():
+    """Fetch all restaurants across all pages"""
+    all_data = []
+    page = 1
+    limit = 100
+    while True:
+        try:
+            res = requests.get(f"{API_URL}/restaurants", params={"page": page, "limit": limit}, timeout=10)
+            if res.status_code != 200:
+                break
+            resp = res.json()
+            if isinstance(resp, list):
+                all_data.extend(resp)
+                break
+            batch = resp.get("data", [])
+            all_data.extend(batch)
+            total = resp.get("total_count", 0)
+            if len(all_data) >= total or len(batch) < limit:
+                break
+            page += 1
+        except:
+            break
+    return all_data
+
 def clear_logs():
     if os.path.exists(LOG_FILE):
         os.remove(LOG_FILE)
@@ -106,32 +130,32 @@ if page == "Dashboard":
         st.rerun()
 
     try:
-        response = requests.get(f"{API_URL}/restaurants", timeout=5)
-        if response.status_code == 200:
-            restaurants = response.json()
-            if restaurants:
-                for r in restaurants:
-                    with st.container(border=True):
-                        col1, col2 = st.columns([1, 2])
-                        with col1:
-                            if r.get('image_path'):
-                                st.image(f"http://localhost:8000/{r['image_path']}", width=300)
-                        with col2:
-                            st.subheader(r.get('name', 'Unknown'))
-                            if r.get('phone'):
-                                st.markdown(f"**Phone:** {r['phone']}")
-                            if r.get('whatsapp'):
-                                st.markdown(f"**WhatsApp:** {r['whatsapp']}")
-                            if r.get('address'):
-                                st.markdown(f"**Address:** {r['address']}")
+        restaurants = get_all_restaurants()
+        if restaurants:
+            for r in restaurants:
+                with st.container(border=True):
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        if r.get('image_path'):
+                            st.image(f"http://localhost:8000/{r['image_path']}", width=300)
+                    with col2:
+                        st.subheader(r.get('name', 'Unknown'))
+                        if r.get('phone'):
+                            st.markdown(f"**Phone:** {r['phone']}")
+                        if r.get('whatsapp'):
+                            st.markdown(f"**WhatsApp:** {r['whatsapp']}")
+                        if r.get('address'):
+                            st.markdown(f"**Address:** {r['address']}")
+                        if r.get('latitude') and r.get('longitude'):
+                            st.markdown(f"**Location:** Lat {r['latitude']}, Lon {r['longitude']}")
 
-                            if r.get('menu_items'):
-                                with st.expander(f"View Menu ({len(r['menu_items'])} items)"):
-                                    for item in r['menu_items'][:15]:
-                                        veg_text = "Veg" if item.get('is_veg') else "Non-Veg"
-                                        st.markdown(f"**{item.get('name', 'Unknown')}** - ₹{item.get('price', 'N/A')} ({veg_text})")
-            else:
-                st.info("No restaurants scraped yet! Go to 'Scraper Control' to start scraping.")
+                        if r.get('menu_items'):
+                            with st.expander(f"View Menu ({len(r['menu_items'])} items)"):
+                                for item in r['menu_items'][:15]:
+                                    veg_text = "Veg" if item.get('is_veg') else "Non-Veg"
+                                    st.markdown(f"**{item.get('name', 'Unknown')}** - ₹{item.get('price', 'N/A')} ({veg_text})")
+        else:
+            st.info("No restaurants scraped yet! Go to 'Scraper Control' to start scraping.")
     except Exception as e:
         st.error(f"Could not connect to API. Is it running? Error: {e}")
 
