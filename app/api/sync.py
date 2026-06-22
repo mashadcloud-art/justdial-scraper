@@ -198,10 +198,10 @@ def get_restaurants(
         images_list = [{"path": img.image_path, "category": img.category or "general"} for img in r.images]
         
         result.append({
-            "id": r.id, "name": r.name, "phone": r.phone, "whatsapp": r.whatsapp, "address": r.address,
-            "jd_url": r.jd_url, "category": r.category, "opening_hours": r.opening_hours,
-            "district": r.district, "state": r.state,
-            "latitude": r.latitude, "longitude": r.longitude,
+            "id": getattr(r, "id", None), "name": getattr(r, "name", ""), "phone": getattr(r, "phone", ""), "whatsapp": getattr(r, "whatsapp", ""), "address": getattr(r, "address", ""),
+            "jd_url": getattr(r, "jd_url", ""), "category": getattr(r, "category", ""), "opening_hours": getattr(r, "opening_hours", ""),
+            "district": getattr(r, "district", ""), "state": getattr(r, "state", ""),
+            "latitude": getattr(r, "latitude", ""), "longitude": getattr(r, "longitude", ""),
             "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list
         })
         
@@ -865,6 +865,7 @@ def _get_adb_devices(adb_path):
 
 @router.post("/adb/proxy/start")
 def api_start_proxy():
+    import time
     # 1. Kill any existing mitmdump to free up port 8089
     try:
         if os.name == "nt":
