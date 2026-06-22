@@ -235,7 +235,7 @@ function Dashboard() {
   const { theme, toggle } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>("scraper");
   const [detailTabs, setDetailTabs] = useState<Business[]>([]);
-  const [maximized, setMaximized] = useState(false);
+  const [maximized, setMaximized] = useState(true);
   // sidebar: collapsed by default (compact mode), expanded when maximized
   const sidebarCollapsed = !maximized;
   const [logModalOpen, setLogModalOpen] = useState(false);
