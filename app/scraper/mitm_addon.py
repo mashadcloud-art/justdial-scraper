@@ -3,12 +3,32 @@ import logging
 import requests
 from mitmproxy import http
 
+import os
+import yaml
+
 # Set up logging for mitmproxy script
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - MITM - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Dynamically load backend URL from config.yaml
+backend_url = "http://127.0.0.1:8000"
+try:
+    # Try finding config.yaml in the working directory or parent directories
+    config_path = "config.yaml"
+    if not os.path.exists(config_path):
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "config.yaml")
+    
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+            if cfg and "api" in cfg and "backend_url" in cfg["api"]:
+                backend_url = cfg["api"]["backend_url"]
+                logger.info(f"Loaded backend_url from config: {backend_url}")
+except Exception as e:
+    logger.error(f"Error loading config.yaml in mitm_addon: {e}")
+
 # Backend API to ingest the data
-INGEST_URL = "http://127.0.0.1:8000/api/v1/ingest-emulator-json"
+INGEST_URL = f"{backend_url.rstrip('/')}/api/v1/ingest-emulator-json"
 
 def response(flow: http.HTTPFlow):
     """

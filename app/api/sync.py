@@ -4,6 +4,7 @@ import shutil
 import datetime
 import json
 import traceback
+import subprocess
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
@@ -379,6 +380,11 @@ def trigger_scrape(
                         playwright_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
                     elif engine == "edge":
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                    elif engine == "emulator":
+                        from app.scraper.adb_location_search import automate_location_search
+                        search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
+                        log(f"ADB Emulator: Starting search for '{search_cat}' in '{city}' with {max_limit} scrolls.")
+                        automate_location_search([city], search_cat, scrolls=max_limit)
                     else:
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                 except Exception as inner_e:
@@ -538,16 +544,59 @@ def get_preview_page(city: str, category: str, page: int = 1):
 # ==========================================
 # EMULATOR JSON INGESTION
 # ==========================================
+smart_scrape_state = {
+    "active": False,
+    "compile_file": "",
+    "district": "",
+    "category": ""
+}
+
 @router.post("/ingest-emulator-json")
 async def ingest_emulator_json(request: Request, district: str = "Unknown"):
     """
     Accepts raw JSON payload intercepted from JustDial mobile API (via HTTP Toolkit).
-    Parses it and inserts it into the database.
+    Parses it and inserts it into the database, or compiles it to a file if Smart Scrape is active.
     """
     try:
         from app.scraper.emulator_parser import process_emulator_json
+        import os, json
         
         json_data = await request.json()
+        
+        if smart_scrape_state["active"]:
+            # SMART SCRAPE MODE: Append to file instead of DB to compile small JSONs
+            file_path = smart_scrape_state["compile_file"]
+            
+            # Read existing
+            if os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    try:
+                        existing = json.load(f)
+                    except:
+                        existing = []
+            else:
+                existing = []
+                
+            # Filter the new data to NOT include base64 images (just keep native JD JSON rows)
+            if "json_data" in json_data:
+                try:
+                    raw_jd = json.loads(json_data["json_data"])
+                    if "results" in raw_jd and isinstance(raw_jd["results"], dict) and "data" in raw_jd["results"]:
+                        rows = raw_jd["results"]["data"]
+                        for row in rows:
+                            # Safely extract image URLs if needed, but JD usually only sends URLs anyway.
+                            # Just append the raw row to compile them!
+                            existing.append(row)
+                except Exception as ex:
+                    print("Error parsing smart scrape raw json:", ex)
+            
+            # Write back
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(existing, f)
+            
+            return {"status": "success", "message": f"Appended to {file_path}", "count": len(existing)}
+
+        # Normal DB ingestion
         success_count = process_emulator_json(json_data, district)
         
         return {"status": "success", "message": f"Successfully ingested {success_count} restaurants.", "count": success_count}
@@ -651,7 +700,7 @@ def get_adb_screenshot():
         target = ""
     else:
         adb_path = "adb"
-        target = "-s localhost:5555"
+        target = "-s 100.97.77.69:5555"
         
     img_path = "/tmp/emulator_screen.png" if os.name != "nt" else "emulator_screen.png"
     
@@ -665,5 +714,338 @@ def get_adb_screenshot():
             return FileResponse(img_path, media_type="image/png")
         else:
             raise HTTPException(status_code=500, detail="Failed to pull screenshot from emulator.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 10. TRIGGER SMART SCRAPE (Loop Pins & Subcategories)
+# ==========================================
+SUBCATEGORIES_MAP = {
+    "Home Services": ["Plumbers", "Electricians", "Carpenters", "Painters", "Cleaners"],
+    "Restaurants": ["Fast Food", "Fine Dining", "Cafes", "Bakeries", "Chinese"],
+    "Hospitals": ["Multi-Specialty", "Dental", "Eye Care", "Orthopedic", "Pediatric"],
+    "Hotels": ["Budget", "3 Star", "4 Star", "5 Star", "Resorts"],
+    "Education": ["Schools", "Colleges", "Coaching", "Play Schools", "Music Classes"],
+    "Real Estate": ["Agents", "Builders", "PG / Hostels", "Rentals"],
+    "Automobile": ["Car Dealers", "Bike Dealers", "Service Centres", "Spare Parts"],
+    "Beauty & Spa": ["Salons", "Spas", "Nail Art", "Tattoo"],
+    "Doctors": ["General Physician", "Cardiologist", "Dermatologist", "Gynaecologist"],
+    "Travel": ["Travel Agents", "Cab Services", "Tour Operators", "Airlines"],
+    "Home Decor": ["Furnitures", "Furnishing", "Lamps-Lighting", "Kitchen-Dining", "Interior-Designers"]
+}
+
+@router.post("/adb/smart-scrape")
+def trigger_smart_scrape(
+    state: str,
+    district: str,
+    main_category: str,
+    scrolls: int = 15,
+    target_location: str = None,
+    background_tasks: BackgroundTasks = None
+):
+    global adb_search_in_progress, smart_scrape_state
+    if adb_search_in_progress:
+        raise HTTPException(status_code=400, detail="ADB search is already in progress.")
+        
+    if target_location and target_location.strip():
+        pincodes = [target_location.strip()]
+    else:
+        from app.api.pincodes import get_pincodes_for_district
+        pincodes = get_pincodes_for_district(district)
+    
+    # Fallback to District name if no PINs found
+    if not pincodes:
+        pincodes = [district]
+        
+    # Get subcategories
+    subcategories = SUBCATEGORIES_MAP.get(main_category, [])
+    
+    if not subcategories:
+        # Fallback to category_cache.json
+        import os, json
+        cache_file = os.path.join(os.path.dirname(__file__), "..", "..", "category_cache.json")
+        if os.path.exists(cache_file):
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cat_data = json.load(f)
+                # Apply mapping translation if needed
+                mapping = {
+                    "Automobile": "Automobiles",
+                    "Beauty & Spa": "Beauty & Spas",
+                    "Doctors": "Health & Medical",
+                    "Hospitals": "Health & Medical",
+                    "Hotels": "Hotels & Restaurants",
+                    "Restaurants": "Hotels & Restaurants",
+                    "Travel": "Travel & Tourism"
+                }
+                mapped_cat = mapping.get(main_category, main_category)
+                if mapped_cat in cat_data:
+                    subcategories = cat_data[mapped_cat].get("subcategories", [])
+                    # If we mapped Restaurants, filter out "Hotels" or non-restaurant subcategories
+                    if main_category == "Restaurants" and subcategories:
+                        subcategories = [s for s in subcategories if s != "Hotels"]
+                    elif main_category == "Hotels" and subcategories:
+                        subcategories = [s for s in subcategories if s != "Restaurants"]
+                        
+    if not subcategories:
+        # If none found, just search the main category
+        subcategories = [main_category]
+        
+    compiled_folder = os.path.join(os.path.dirname(__file__), "..", "..", "data", "compiled_jsons")
+    os.makedirs(compiled_folder, exist_ok=True)
+    compile_file = os.path.join(compiled_folder, f"{district}_{main_category}_Compiled.json")
+    
+    # Initialize empty compiled file
+    with open(compile_file, "w", encoding="utf-8") as f:
+        json.dump([], f)
+        
+    def run_smart_scrape():
+        global adb_search_in_progress, smart_scrape_state
+        try:
+            adb_search_in_progress = True
+            smart_scrape_state["active"] = True
+            smart_scrape_state["compile_file"] = compile_file
+            smart_scrape_state["district"] = district
+            smart_scrape_state["category"] = main_category
+            
+            scraper_logger.clear()
+            log(f"SMART SCRAPE: Starting {district}. Found {len(pincodes)} locations and {len(subcategories)} subcategories.")
+            
+            for sub in subcategories:
+                log(f"SMART SCRAPE: Processing subcategory -> {sub}")
+                automate_location_search(pincodes, sub, scrolls)
+                
+            log(f"SMART SCRAPE: Completed successfully! Compiled JSON saved to {compile_file}")
+            
+        except Exception as e:
+            log(f"SMART SCRAPE: Failed with error: {e}", ok=False)
+        finally:
+            adb_search_in_progress = False
+            smart_scrape_state["active"] = False
+            
+    if background_tasks:
+        background_tasks.add_task(run_smart_scrape)
+        return {"status": "started", "message": f"Smart scrape started for {district}. Subcategories: {len(subcategories)}"}
+    else:
+        import threading
+        threading.Thread(target=run_smart_scrape, daemon=True).start()
+        return {"status": "started", "message": f"Smart scrape started for {district}. Subcategories: {len(subcategories)}"}
+
+# ==========================================
+# 11. PROXY & COMPILED JSON MANAGER ENDPOINTS
+# ==========================================
+
+def _get_local_ip():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
+def _get_adb_devices(adb_path):
+    try:
+        if os.name != "nt":
+            # On remote Linux server, connect to desktop emulator over Tailscale VPN
+            try:
+                subprocess.run(f'"{adb_path}" connect 100.97.77.69:5555', shell=True, timeout=8)
+            except Exception:
+                pass
+        out = subprocess.check_output(f'"{adb_path}" devices', shell=True, text=True)
+        devices = []
+        for line in out.strip().splitlines()[1:]:
+            if line.strip() and "device" in line and "devices" not in line:
+                devices.append(line.split()[0])
+        return devices
+    except Exception:
+        return []
+
+@router.post("/adb/proxy/start")
+def api_start_proxy():
+    # 1. Kill any existing mitmdump to free up port 8089
+    try:
+        if os.name == "nt":
+            subprocess.run("taskkill /F /IM mitmdump.exe", shell=True, capture_output=True)
+        else:
+            subprocess.run(["pkill", "-f", "mitmdump"], capture_output=True)
+    except Exception:
+        pass
+        
+    # 2. Check and Launch BlueStacks if closed
+    bluestacks_path = r"C:\Program Files\BlueStacks_nxt\HD-Player.exe"
+    if os.name == "nt" and os.path.exists(bluestacks_path):
+        try:
+            tasklist_out = subprocess.check_output("tasklist /FI \"IMAGENAME eq HD-Player.exe\"", shell=True, text=True)
+            if "HD-Player.exe" not in tasklist_out:
+                subprocess.Popen([bluestacks_path])
+                time.sleep(12) # Wait for it to boot up
+        except Exception:
+            pass
+
+    # 3. Start mitmdump
+    adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    mitmdump_path = "venv/bin/mitmdump" if os.name != "nt" else "venv/Scripts/mitmdump.exe"
+    if not os.path.exists(mitmdump_path):
+        mitmdump_path = "mitmdump" # fallback to path
+        
+    cmd = [mitmdump_path, "-s", "app/scraper/mitm_addon.py", "-p", "8089"]
+    try:
+        # Run it in background and redirect output to a log file
+        log_file = open("mitmdump_live.log", "w", encoding="utf-8")
+        subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=log_file,
+            preexec_fn=os.setsid if os.name != "nt" else None
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start mitmdump: {str(e)}")
+        
+    # 4. Set phone proxy via ADB for all connected devices (with retry loop)
+    server_ip = _get_local_ip()
+    devices = []
+    
+    # Retry detection loop
+    for attempt in range(5):
+        devices = _get_adb_devices(adb_path)
+        if devices:
+            break
+        time.sleep(3)
+    
+    if not devices:
+        return {
+            "status": "warning",
+            "message": "Proxy started on port 8089, but BlueStacks took too long to respond. Please make sure BlueStacks is fully open and try clicking the button again."
+        }
+        
+    configured = []
+    errors = []
+    for device in devices:
+        adb_cmd = f'"{adb_path}" -s {device} shell settings put global http_proxy {server_ip}:8089'
+        try:
+            subprocess.check_call(adb_cmd, shell=True)
+            configured.append(device)
+        except Exception as e:
+            errors.append(f"{device}: {str(e)}")
+            
+    if errors:
+        return {
+            "status": "warning",
+            "message": f"Proxy started. Configured: {', '.join(configured)}. Failed: {', '.join(errors)}"
+        }
+        
+    return {"status": "running", "message": f"Proxy started successfully and routed devices ({', '.join(configured)}) to {server_ip}:8089"}
+
+@router.post("/adb/proxy/stop")
+def api_stop_proxy():
+    # 1. Kill mitmdump
+    try:
+        if os.name == "nt":
+            subprocess.run("taskkill /F /IM mitmdump.exe", shell=True, capture_output=True)
+        else:
+            subprocess.run(["pkill", "-f", "mitmdump"], capture_output=True)
+    except Exception:
+        pass
+        
+    # 2. Reset phone proxy on all connected devices
+    adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    devices = _get_adb_devices(adb_path)
+    
+    for device in devices:
+        try:
+            subprocess.run(f'"{adb_path}" -s {device} shell settings put global http_proxy :0', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f'"{adb_path}" -s {device} shell settings delete global http_proxy', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f'"{adb_path}" -s {device} shell settings delete global global_http_proxy_host', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f'"{adb_path}" -s {device} shell settings delete global global_http_proxy_port', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        
+    return {"status": "stopped", "message": "Proxy stopped and emulator proxy settings cleared."}
+
+@router.get("/adb/proxy/status")
+def api_proxy_status():
+    # Check if mitmdump process is running (via ps/pgrep on Linux)
+    is_running = False
+    if os.name != "nt":
+        try:
+            out = subprocess.run(["pgrep", "-f", "mitmdump"], capture_output=True, text=True)
+            if out.returncode == 0 and out.stdout.strip():
+                is_running = True
+        except Exception:
+            pass
+    else:
+        try:
+            out = subprocess.check_output("tasklist /FI \"IMAGENAME eq mitmdump.exe\"", shell=True, text=True)
+            if "mitmdump" in out:
+                is_running = True
+        except Exception:
+            pass
+            
+    # Also check if phone proxy is routed on the first connected device
+    phone_proxy = "Unknown"
+    try:
+        adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+        devices = _get_adb_devices(adb_path)
+        if devices:
+            device = devices[0]
+            val = subprocess.check_output(f'"{adb_path}" -s {device} shell settings get global http_proxy', shell=True, text=True).strip()
+            phone_proxy = val if val and val != "null" and val != ":0" else "None"
+        else:
+            phone_proxy = "Disconnected"
+    except Exception:
+        phone_proxy = "Disconnected"
+        
+    return {"running": is_running, "phone_proxy": phone_proxy}
+
+@router.get("/compiled-jsons")
+def list_compiled_jsons():
+    compiled_folder = os.path.join(os.path.dirname(__file__), "..", "..", "data", "compiled_jsons")
+    os.makedirs(compiled_folder, exist_ok=True)
+    
+    files = []
+    for filename in os.listdir(compiled_folder):
+        if filename.endswith(".json"):
+            path = os.path.join(compiled_folder, filename)
+            stat = os.stat(path)
+            files.append({
+                "filename": filename,
+                "size_bytes": stat.st_size,
+                "modified": stat.st_mtime
+            })
+            
+    # Sort by modified time descending
+    files.sort(key=lambda x: x["modified"], reverse=True)
+    return files
+
+@router.get("/compiled-jsons/{filename}")
+def download_compiled_json(filename: str):
+    compiled_folder = os.path.join(os.path.dirname(__file__), "..", "..", "data", "compiled_jsons")
+    path = os.path.abspath(os.path.join(compiled_folder, filename))
+    # Security check: prevent directory traversal
+    if not path.startswith(os.path.abspath(compiled_folder)):
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+        
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found.")
+        
+    from fastapi.responses import FileResponse
+    return FileResponse(path, filename=filename, media_type="application/json")
+
+@router.delete("/compiled-jsons/{filename}")
+def delete_compiled_json(filename: str):
+    compiled_folder = os.path.join(os.path.dirname(__file__), "..", "..", "data", "compiled_jsons")
+    path = os.path.abspath(os.path.join(compiled_folder, filename))
+    if not path.startswith(os.path.abspath(compiled_folder)):
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+        
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found.")
+        
+    try:
+        os.remove(path)
+        return {"status": "deleted", "message": f"Deleted {filename} successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
