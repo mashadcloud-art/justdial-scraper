@@ -887,9 +887,24 @@ def api_start_proxy():
 
     # 3. Start mitmdump
     adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
-    mitmdump_path = "venv/bin/mitmdump" if os.name != "nt" else "venv/Scripts/mitmdump.exe"
-    if not os.path.exists(mitmdump_path):
-        mitmdump_path = "mitmdump" # fallback to path
+    
+    # Dynamically locate mitmdump path based on environment
+    import sys
+    import shutil
+    mitmdump_path = "mitmdump"
+    if os.name != "nt":
+        for p in ["venv/bin/mitmdump", "mitmdump"]:
+            if os.path.exists(p) or shutil.which(p):
+                mitmdump_path = p
+                break
+    else:
+        py_dir = os.path.dirname(sys.executable)
+        path1 = os.path.join(py_dir, "mitmdump.exe")
+        path2 = os.path.join(py_dir, "Scripts", "mitmdump.exe")
+        if os.path.exists(path1):
+            mitmdump_path = path1
+        elif os.path.exists(path2):
+            mitmdump_path = path2
         
     cmd = [mitmdump_path, "-s", "app/scraper/mitm_addon.py", "-p", "8089"]
     try:
