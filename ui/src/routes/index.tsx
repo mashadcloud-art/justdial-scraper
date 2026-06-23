@@ -132,22 +132,31 @@ const CITIES: Record<string, string[]> = {
   "Puducherry": ["Puducherry","Karaikal","Mahe","Yanam"],
 };
 const CATEGORIES = [
-  "Home Services","Restaurants","Hospitals","Hotels","Education",
-  "Real Estate","Automobile","Beauty & Spa","Doctors","Travel",
-  "Home Decor",
+  "Beauty & Spas", "Hotels & Restaurants", "Health & Medical", "Education",
+  "Automobiles", "Shopping", "Home Services", "Real Estate", "Travel & Tourism",
+  "Events & Weddings", "Legal & Professional Services", "Computer & IT",
+  "Home Decor & Furnishing", "Entertainment & Fitness", "Banks & Financial Services",
+  "Electronics & Electrical", "Government & Utilities"
 ];
+
 const SUBCATEGORIES: Record<string, string[]> = {
-  "Home Services": ["Plumbers","Electricians","Carpenters","Painters","Cleaners"],
-  Restaurants: ["Fast Food","Fine Dining","Cafes","Bakeries","Chinese"],
-  Hospitals: ["Multi-Specialty","Dental","Eye Care","Orthopedic","Pediatric"],
-  Hotels: ["Budget","3 Star","4 Star","5 Star","Resorts"],
-  Education: ["Schools","Colleges","Coaching","Play Schools","Music Classes"],
-  "Real Estate": ["Agents","Builders","PG / Hostels","Rentals"],
-  Automobile: ["Car Dealers","Bike Dealers","Service Centres","Spare Parts"],
-  "Beauty & Spa": ["Salons","Spas","Nail Art","Tattoo"],
-  Doctors: ["General Physician","Cardiologist","Dermatologist","Gynaecologist"],
-  Travel: ["Travel Agents","Cab Services","Tour Operators","Airlines"],
-  "Home Decor": ["Furnitures","Furnishing","Lamps-Lighting","Kitchen-Dining","Interior-Designers"],
+  "Beauty & Spas": ["Beauty Parlours", "Salons", "Hair Stylist", "Massage Centres", "Bridal Makeup", "Tattoo"],
+  "Hotels & Restaurants": ["Restaurants", "Hotels", "Bakeries", "Cafes", "Fast Food", "Resorts", "Sweet Shops"],
+  "Health & Medical": ["Hospitals", "Clinics", "Dentists", "Pharmacies", "Ayurvedic Clinics", "Opticians"],
+  "Education": ["Schools", "Colleges", "Tutorials", "Computer Training", "Driving Schools"],
+  "Automobiles": ["Car Dealers", "Car Repair", "Bike Dealers", "Tyre Dealers", "Car Rental"],
+  "Shopping": ["Readymade Garments", "Jewellery", "Supermarkets", "Footwear", "Mobile Phone Dealers"],
+  "Home Services": ["Plumbers", "Electricians", "Carpenters", "Packers & Movers", "Pest Control"],
+  "Real Estate": ["Estate Agents", "Builders", "PG Accommodation", "Commercial Property"],
+  "Travel & Tourism": ["Travel Agents", "Tour Operators", "Cab Services", "Bus Services"],
+  "Events & Weddings": ["Event Organisers", "Wedding Planners", "Photographers", "Decorators"],
+  "Legal & Professional Services": ["Lawyers", "Chartered Accountants", "Consultants", "Placement Agencies"],
+  "Computer & IT": ["Computer Repair", "Software Companies", "Web Designers", "Laptop Dealers"],
+  "Home Decor & Furnishing": ["Furniture Dealers", "Interior Designers", "Mattress Dealers", "Curtain Dealers"],
+  "Entertainment & Fitness": ["Gyms", "Cinemas", "Sports Clubs", "Yoga Classes"],
+  "Banks & Financial Services": ["Banks", "ATMs", "Loans", "Insurance Agents"],
+  "Electronics & Electrical": ["Electrical Shops", "Hardware Shops", "Paint Dealers", "Sanitaryware"],
+  "Government & Utilities": ["Post Offices", "Police Stations", "NGOs"],
 };
 
 const MOCK_MENUS: MenuItem[][] = [
