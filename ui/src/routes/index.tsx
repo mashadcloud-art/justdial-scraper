@@ -2312,7 +2312,8 @@ function Dashboard() {
                       />
                       <datalist id="db-categories">
                         <option value="All">All Categories</option>
-                        {Object.keys(SUBCATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
+                        {Object.keys(SUBCATEGORIES).map(c => <option key={`master-${c}`} value={c}>{c}</option>)}
+                        {Object.values(SUBCATEGORIES).flat().map(c => <option key={`sub-${c}`} value={c}>{c}</option>)}
                       </datalist>
                     </div>
                     <div className="space-y-1 w-48">
