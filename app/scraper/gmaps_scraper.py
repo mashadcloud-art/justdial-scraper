@@ -433,7 +433,7 @@ def upload_to_db(data: Dict, district: str = "") -> int:
     Uses the same upload endpoint as the rest of the app.
     """
     import requests as req
-    API_URL = "http://localhost:8000/api/v1/upload-restaurant"
+    API_URL = "http://localhost:8000/api/v1/upload-listing"
     success = 0
 
     for r in data.get("results", []):

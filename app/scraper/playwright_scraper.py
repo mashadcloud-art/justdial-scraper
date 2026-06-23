@@ -9,7 +9,7 @@ from playwright_stealth import stealth
 
 logger = logging.getLogger(__name__)
 
-API_UPLOAD_URL = "http://localhost:8000/api/v1/upload-restaurant"
+API_UPLOAD_URL = "http://localhost:8000/api/v1/upload-listing"
 
 def _extract_from_dom(page_source):
     from bs4 import BeautifulSoup

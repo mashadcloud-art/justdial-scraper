@@ -20,6 +20,7 @@ export default function ListingsManager({
   const [district, setDistrict] = useState("All");
   const [mainCat, setMainCat] = useState("Restaurants");
   const [subCat, setSubCat] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
@@ -39,8 +40,11 @@ export default function ListingsManager({
   const subCategoriesList = SUBCATEGORIES[mainCat] || [];
 
   useEffect(() => {
-    fetchPage();
-  }, [page, district, state, subCat]);
+    const timer = setTimeout(() => {
+      fetchPage();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [page, district, state, subCat, searchQuery, limit]);
 
   async function fetchPage() {
     try {
@@ -48,8 +52,9 @@ export default function ListingsManager({
       if (state && state !== "All") qs.append("state", state);
       if (district && district !== "All") qs.append("district", district);
       if (subCat && subCat !== "All") qs.append("category", subCat);
+      if (searchQuery) qs.append("search", searchQuery);
 
-      const res = await fetch(`${API}/restaurants?${qs.toString()}`);
+      const res = await fetch(`${API}/listings?${qs.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setData(json.data || []);
@@ -136,6 +141,19 @@ export default function ListingsManager({
     <div className="flex flex-col h-full overflow-y-auto p-4 space-y-4">
       {/* Controls Top Bar */}
       <div className="bg-card rounded-xl p-4 ring-1 ring-border shadow-sm flex flex-wrap gap-4 items-end">
+        <div className="space-y-1.5 flex-1 min-w-[150px]">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Search</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search Name or Phone..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              className="w-full h-9 pl-9 pr-3 rounded-lg border border-input bg-transparent text-sm outline-none focus:ring-1 focus:ring-brand"
+            />
+          </div>
+        </div>
         <div className="space-y-1.5 flex-1 min-w-[150px]">
           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">State</label>
           <select value={state} onChange={(e) => { setState(e.target.value); setDistrict("All"); setPage(1); }} className="w-full h-9 rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none">

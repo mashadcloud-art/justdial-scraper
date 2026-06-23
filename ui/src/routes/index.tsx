@@ -489,7 +489,7 @@ function Dashboard() {
       const res = await fetch(`${API}/stats`);
       if (res.ok) {
         const data = await res.json();
-        setStatsTotal(data.total_restaurants ?? 0);
+        setStatsTotal(data.total_listings ?? data.total_restaurants ?? 0);
         setStatsImages(data.total_images ?? 0);
       }
     } catch { /* backend not ready yet */ }
@@ -513,7 +513,13 @@ function Dashboard() {
 
   async function fetchRestaurants() {
     try {
-      const res = await fetch(`${API}/restaurants?page=1&limit=1000000`);
+      const qs = new URLSearchParams({ page: "1", limit: "50" });
+      if (dbFilterState !== "All") qs.append("state", dbFilterState);
+      if (dbFilterDistrict !== "All") qs.append("district", dbFilterDistrict);
+      if (dbFilterCategory !== "All") qs.append("category", dbFilterCategory);
+      if (searchQuery) qs.append("search", searchQuery);
+
+      const res = await fetch(`${API}/listings?${qs.toString()}`);
       if (res.ok) {
         const responseData = await res.json();
         const data: any[] = responseData.data || [];
@@ -555,6 +561,13 @@ function Dashboard() {
       }
     } catch { addLog(false, "Could not connect to backend API."); }
   }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRestaurants();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [dbFilterState, dbFilterDistrict, dbFilterCategory, searchQuery]);
 
   useEffect(() => {
     const cities = CITIES[state] ?? [];
@@ -1018,7 +1031,7 @@ function Dashboard() {
   const confirmBulkDelete = async () => {
     const ids = Array.from(selected);
     for (const id of ids) {
-      try { await fetch(`${API}/restaurant/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+      try { await fetch(`${API}/listing/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
     }
     setRows((rs) => rs.filter((r) => !selected.has(r.id)));
     toast.success(`Deleted ${selected.size} records`);
@@ -2289,6 +2302,13 @@ function Dashboard() {
                         <option value="All">All Categories</option>
                         {Object.keys(SUBCATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
+                    </div>
+                    <div className="space-y-1 w-48">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Search</label>
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2 size-4 text-muted-foreground" />
+                        <input type="text" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full h-8 pl-8 pr-2 rounded border border-input bg-background text-xs outline-none focus:ring-1 focus:ring-brand" />
+                      </div>
                     </div>
                   </div>
                   <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-2">

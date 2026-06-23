@@ -17,8 +17,11 @@ from app_config import CONFIG as APP_CONFIG
 from app.scraper.emulator_parser import (
     get_state_from_district,
     extract_place_from_address,
-    detect_category_from_name
+    detect_category_from_name,
+    extract_district_from_address,
+    reverse_geocode_coords
 )
+from app.scraper.category_normalizer import normalize_category
 
 # Cuisine keywords to split category/subcategory
 CUISINE_KEYWORDS = [
@@ -97,10 +100,11 @@ def _get_adb_devices(adb_path):
         return []
 
 # ==========================================
-# 1. UPLOAD RESTAURANT (Existing)
+# 1. UPLOAD LISTING (Existing)
 # ==========================================
-@router.post("/upload-restaurant", status_code=201)
-def upload_restaurant(
+@router.post("/upload-listing", status_code=201)
+@router.post("/upload-restaurant", status_code=201, deprecated=True)
+def upload_listing(
     name: str = Form(...),
     phone: Optional[str] = Form(None),
     whatsapp: Optional[str] = Form(None),
@@ -120,58 +124,100 @@ def upload_restaurant(
     db: Session = Depends(get_db)
 ):
     try:
+        # Hybrid Location Engine: Try Coordinate Reverse Geocoding first, fallback to address text parsing
+        geo_info = reverse_geocode_coords(latitude, longitude)
+        if geo_info:
+            if geo_info.get("district"):
+                district = geo_info["district"]
+            cleaned_state = geo_info.get("state") or state or get_state_from_district(district or "")
+            
+            # Construct place value
+            town_val = geo_info.get("town") or ""
+            local_val = geo_info.get("local_area") or ""
+            if local_val and town_val and local_val.lower() != town_val.lower():
+                cleaned_place = f"{local_val}, {town_val}"
+            else:
+                cleaned_place = local_val or town_val
+        else:
+            # Overwrite district with one found in address if any
+            addr_district = extract_district_from_address(address or "")
+            if addr_district:
+                district = addr_district
+                
+            cleaned_state = state or get_state_from_district(district or "")
+            cleaned_place = extract_place_from_address(address or "", district or "")
+
         # Segregate category & subcategory, assign state and place
         cleaned_cat = category or ""
         cleaned_sub = None
         
         if cleaned_cat:
             cleaned_cat, cleaned_sub = process_category_subcategory(cleaned_cat)
-            
-        cleaned_state = state or get_state_from_district(district or "")
-        cleaned_place = extract_place_from_address(address or "", district or "")
         
         # Detect if business name contains building/complex keywords
         cleaned_cat = detect_category_from_name(name, cleaned_cat)
+        
+        # Auto-tag normalized parent category (e.g., "Beauty & Spas", "Hotels & Restaurants")
+        normalized_cat = normalize_category(cleaned_cat)
+        
+        # ── AUTO LOCATION CORRECTION ──
+        if latitude and longitude:
+            try:
+                # Do reverse geocoding to fix incorrect JustDial locations (Pincode, District, City)
+                correction = get_corrected_location(latitude, longitude, current_district=district, current_place=cleaned_place)
+                if correction.get("corrected"):
+                    # Apply corrections
+                    if correction.get("correct_district"):
+                        district = correction["correct_district"]
+                    if correction.get("correct_city"):
+                        cleaned_place = correction["correct_city"]
+                    if correction.get("correct_state"):
+                        cleaned_state = correction["correct_state"]
+                    # Optionally log: print(f"Corrected Location for {name}: {correction['notes']}")
+            except Exception as e:
+                print(f"Location correction failed for {name}: {e}")
 
-        existing = db.query(models.Restaurant).filter(models.Restaurant.name == name).first()
+        existing = db.query(models.Listing).filter(models.Listing.name == name).first()
         
         if existing:
-            restaurant = existing
+            listing = existing
             # Only overwrite fields if new value is provided (never blank out existing data)
-            if phone: restaurant.phone = phone
-            if whatsapp: restaurant.whatsapp = whatsapp
-            if address: restaurant.address = address
-            if opening_hours: restaurant.opening_hours = opening_hours
-            if cleaned_cat: restaurant.category = cleaned_cat
-            if cleaned_sub: restaurant.subcategory = cleaned_sub
-            if district: restaurant.district = district
-            if cleaned_place: restaurant.place = cleaned_place
-            if cleaned_state: restaurant.state = cleaned_state
-            if latitude: restaurant.latitude = latitude
-            if longitude: restaurant.longitude = longitude
-            restaurant.scraped_at = datetime.datetime.utcnow()
+            if phone: listing.phone = phone
+            if whatsapp: listing.whatsapp = whatsapp
+            if address: listing.address = address
+            if opening_hours: listing.opening_hours = opening_hours
+            if cleaned_cat: listing.category = cleaned_cat
+            if cleaned_sub: listing.subcategory = cleaned_sub
+            if normalized_cat: listing.normalized_category = normalized_cat
+            if district: listing.district = district
+            if cleaned_place: listing.place = cleaned_place
+            if cleaned_state: listing.state = cleaned_state
+            if latitude: listing.latitude = latitude
+            if longitude: listing.longitude = longitude
+            listing.scraped_at = datetime.datetime.utcnow()
             # Only clear menus/amenities to re-enrich — NOT images (keep mobile API images)
-            restaurant.menu_items.clear()
-            restaurant.amenities.clear()
+            listing.menu_items.clear()
+            listing.amenities.clear()
             # Only clear images if new ones are being uploaded (don't wipe mobile API images)
             if images or image_urls_json:
-                restaurant.images.clear()
+                listing.images.clear()
         else:
-            restaurant = models.Restaurant(
+            listing = models.Listing(
                 name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
-                jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, opening_hours=opening_hours or "",
+                jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, normalized_category=normalized_cat or "Other",
+                opening_hours=opening_hours or "",
                 district=district or "", place=cleaned_place or "", state=cleaned_state or "", latitude=latitude or "", longitude=longitude or ""
             )
-            db.add(restaurant)
+            db.add(listing)
             db.flush()
             
-        restaurant_id = restaurant.id
+        listing_id = listing.id
 
-        # Add menu items (robustly
+        # Add menu items (robustly)
         if menu_json:
             try:
                 for item in json.loads(menu_json):
-                    db.add(models.MenuItem(restaurant_id=restaurant_id, name=str(item.get('name', '')), price=str(item.get('price', '0')), is_veg=bool(item.get('is_veg', True))))
+                    db.add(models.MenuItem(listing_id=listing_id, name=str(item.get('name', '')), price=str(item.get('price', '0')), is_veg=bool(item.get('is_veg', True))))
             except Exception as menu_e:
                 pass  # Ignore menu errors, still save other data
 
@@ -183,7 +229,7 @@ def upload_restaurant(
                     for category, values in amenities_data.items():
                         if isinstance(values, list):
                             for val in values:
-                                db.add(models.Amenity(restaurant_id=restaurant_id, category=str(category), value=str(val)))
+                                db.add(models.Amenity(listing_id=listing_id, category=str(category), value=str(val)))
             except Exception as amenity_e:
                 pass  # Ignore amenities errors
 
@@ -202,8 +248,8 @@ def upload_restaurant(
                     img_url = item.get('path')
                     cat = item.get('category', 'general')
                     if img_url:
-                        db.add(models.RestaurantImage(
-                            restaurant_id=restaurant_id,
+                        db.add(models.ListingImage(
+                            listing_id=listing_id,
                             image_path=img_url,
                             category=cat,
                             is_primary=(i == 0)
@@ -222,12 +268,12 @@ def upload_restaurant(
                         image_path = os.path.join(UPLOAD_DIR, filename)
                         with open(image_path, "wb") as buffer:
                             shutil.copyfileobj(img_file.file, buffer)
-                        db.add(models.RestaurantImage(restaurant_id=restaurant_id, image_path=image_path, category=cat, is_primary=(i == 0)))
+                        db.add(models.ListingImage(listing_id=listing_id, image_path=image_path, category=cat, is_primary=(i == 0)))
                 except Exception as img_e:
                     pass  # Skip image fails, still save rest
 
         db.commit()
-        return {"message": "Success", "restaurant_id": restaurant_id}
+        return {"message": "Success", "listing_id": listing_id}
 
     except Exception as e:
         db.rollback()
@@ -243,40 +289,54 @@ def upload_restaurant(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
-# 2. GET ALL RESTAURANTS (Existing)
+# 2. GET ALL LISTINGS (Existing)
 # ==========================================
-@router.get("/restaurants")
-def get_restaurants(
+@router.get("/listings")
+@router.get("/restaurants", deprecated=True)
+def get_listings(
     page: int = 1, 
     limit: int = 1000000, 
     district: Optional[str] = None, 
     state: Optional[str] = None, 
     category: Optional[str] = None,
+    normalized_category: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    query = db.query(models.Restaurant)
+    query = db.query(models.Listing)
     
     if state:
-        query = query.filter(models.Restaurant.state.ilike(f"%{state}%"))
+        query = query.filter(models.Listing.state.ilike(f"%{state}%"))
     if district:
-        query = query.filter(models.Restaurant.district.ilike(f"%{district}%"))
+        query = query.filter(models.Listing.district.ilike(f"%{district}%"))
+    if normalized_category:
+        # Search by parent group: e.g., "Beauty & Spas" returns ALL salons, spas, parlours, etc.
+        query = query.filter(models.Listing.normalized_category.ilike(f"%{normalized_category}%"))
     if category:
-        # Use LIKE so "Punjabi" matches "Punjabi, South Indian, Multicuisine"
+        # Search by specific raw category: e.g., "Salons" returns ONLY salons
         query = query.filter(
-            models.Restaurant.category.ilike(f"%{category}%") |
-            models.Restaurant.subcategory.ilike(f"%{category}%")
+            models.Listing.category.ilike(f"%{category}%") |
+            models.Listing.subcategory.ilike(f"%{category}%")
+        )
+    if search:
+        query = query.filter(
+            models.Listing.name.ilike(f"%{search}%") |
+            models.Listing.category.ilike(f"%{search}%") |
+            models.Listing.address.ilike(f"%{search}%") |
+            models.Listing.phone.ilike(f"%{search}%") |
+            models.Listing.district.ilike(f"%{search}%")
         )
         
     total_count = query.count()
     
-    restaurants = query.options(
-        selectinload(models.Restaurant.images),
-        selectinload(models.Restaurant.menu_items),
-        selectinload(models.Restaurant.amenities)
-    ).order_by(models.Restaurant.id.desc()).offset((page - 1) * limit).limit(limit).all()
+    listings = query.options(
+        selectinload(models.Listing.images),
+        selectinload(models.Listing.menu_items),
+        selectinload(models.Listing.amenities)
+    ).order_by(models.Listing.id.desc()).offset((page - 1) * limit).limit(limit).all()
     
     result = []
-    for r in restaurants:
+    for r in listings:
         primary_img = next((img.image_path for img in r.images if img.is_primary), None)
         if not primary_img and r.images: primary_img = r.images[0].image_path
             
@@ -286,8 +346,9 @@ def get_restaurants(
         
         result.append({
             "id": getattr(r, "id", None), "name": getattr(r, "name", ""), "phone": getattr(r, "phone", ""), "whatsapp": getattr(r, "whatsapp", ""), "address": getattr(r, "address", ""),
-            "jd_url": getattr(r, "jd_url", ""), "category": getattr(r, "category", ""), "opening_hours": getattr(r, "opening_hours", ""),
-            "district": getattr(r, "district", ""), "state": getattr(r, "state", ""),
+            "jd_url": getattr(r, "jd_url", ""), "category": getattr(r, "category", ""), "subcategory": getattr(r, "subcategory", ""),
+            "normalized_category": getattr(r, "normalized_category", ""), "opening_hours": getattr(r, "opening_hours", ""),
+            "district": getattr(r, "district", ""), "state": getattr(r, "state", ""), "place": getattr(r, "place", ""),
             "latitude": getattr(r, "latitude", ""), "longitude": getattr(r, "longitude", ""),
             "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list
         })
@@ -304,25 +365,83 @@ def get_restaurants(
 # ==========================================
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
-    total_restaurants = db.query(models.Restaurant).count()
-    total_images = db.query(models.RestaurantImage).count()
+    from sqlalchemy import func
+    total_listings = db.query(models.Listing).count()
+    total_images = db.query(models.ListingImage).count()
     total_menu_items = db.query(models.MenuItem).count()
+    
+    # Category group counts
+    cat_counts = db.query(
+        models.Listing.normalized_category, func.count(models.Listing.id)
+    ).group_by(models.Listing.normalized_category).all()
+    category_breakdown = {(cat or "Other"): count for cat, count in cat_counts}
+    
     return {
-        "total_restaurants": total_restaurants,
+        "total_listings": total_listings,
+        "total_restaurants": total_listings, # Backward compatibility
         "total_images": total_images,
-        "total_menu_items": total_menu_items
+        "total_menu_items": total_menu_items,
+        "category_breakdown": category_breakdown
     }
+
+# ==========================================
+# 3b. CATEGORY SUMMARY — grouped parent categories with raw sub-category breakdown
+# ==========================================
+@router.get("/categories/summary")
+def get_categories_summary(db: Session = Depends(get_db)):
+    """
+    Returns all parent normalized categories with their counts
+    and the breakdown of raw JustDial sub-categories within each.
+    
+    Example response:
+    {
+      "Beauty & Spas": {
+        "count": 750,
+        "raw_categories": {"Beauty Parlours": 462, "Salons": 145, "Hair Stylists": 9, ...}
+      }
+    }
+    """
+    from sqlalchemy import func
+    
+    # Get all normalized_category + category combos with counts
+    rows = db.query(
+        models.Listing.normalized_category,
+        models.Listing.category,
+        func.count(models.Listing.id)
+    ).group_by(
+        models.Listing.normalized_category,
+        models.Listing.category
+    ).all()
+    
+    result = {}
+    for norm_cat, raw_cat, count in rows:
+        parent = norm_cat or "Other"
+        if parent not in result:
+            result[parent] = {"count": 0, "raw_categories": {}}
+        result[parent]["count"] += count
+        if raw_cat:
+            result[parent]["raw_categories"][raw_cat] = count
+    
+    # Sort by count descending
+    result = dict(sorted(result.items(), key=lambda x: -x[1]["count"]))
+    # Sort raw_categories within each parent
+    for parent in result:
+        result[parent]["raw_categories"] = dict(
+            sorted(result[parent]["raw_categories"].items(), key=lambda x: -x[1])
+        )
+    
+    return result
 
 # ==========================================
 # 4. NEW: DELETE DUPLICATES
 # ==========================================
 @router.post("/delete-duplicates")
 def delete_duplicates(db: Session = Depends(get_db)):
-    restaurants = db.query(models.Restaurant).all()
+    listings = db.query(models.Listing).all()
     seen = {}
     duplicates = []
     
-    for r in restaurants:
+    for r in listings:
         # Create a unique key based on Name and Phone
         key = (r.name.strip().lower(), r.phone.strip() if r.phone else "")
         if key in seen:
@@ -337,24 +456,25 @@ def delete_duplicates(db: Session = Depends(get_db)):
     return {"deleted": len(duplicates)}
 
 # ==========================================
-# 5. NEW: DELETE SINGLE RESTAURANT
+# 5. NEW: DELETE SINGLE LISTING
 # ==========================================
-@router.delete("/restaurant/{restaurant_id}")
-def delete_restaurant(restaurant_id: int, delete_images: bool = False, db: Session = Depends(get_db)):
-    restaurant = db.query(models.Restaurant).filter(models.Restaurant.id == restaurant_id).first()
+@router.delete("/listing/{listing_id}")
+@router.delete("/restaurant/{listing_id}", deprecated=True)
+def delete_listing(listing_id: int, delete_images: bool = False, db: Session = Depends(get_db)):
+    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
     
-    if not restaurant:
-        raise HTTPException(status_code=404, detail=f"Restaurant with ID {restaurant_id} not found")
+    if not listing:
+        raise HTTPException(status_code=404, detail=f"Listing with ID {listing_id} not found")
     
     # Collect images to delete if needed
     image_paths = []
     if delete_images:
-        for img in restaurant.images:
+        for img in listing.images:
             if img.image_path and os.path.exists(img.image_path):
                 image_paths.append(img.image_path)
     
     # Delete from DB (SQLAlchemy handles cascading delete for related items)
-    db.delete(restaurant)
+    db.delete(listing)
     db.commit()
     
     # Delete images from file system (optimized)
@@ -368,7 +488,7 @@ def delete_restaurant(restaurant_id: int, delete_images: bool = False, db: Sessi
                     pass
         threading.Thread(target=delete_files).start()  # Delete files in background to reduce lag
     
-    return {"status": "success", "deleted_id": restaurant_id}
+    return {"status": "success", "deleted_id": listing_id}
 
 # ==========================================
 # 6. NEW: CLEAR ALL DATA (Danger Zone)
@@ -376,14 +496,14 @@ def delete_restaurant(restaurant_id: int, delete_images: bool = False, db: Sessi
 @router.post("/clear-all")
 def clear_all(db: Session = Depends(get_db)):
     # First collect all image paths
-    images = db.query(models.RestaurantImage).all()
+    images = db.query(models.ListingImage).all()
     image_paths = [img.image_path for img in images if img.image_path and os.path.exists(img.image_path)]
     
     # Delete from DB
     db.query(models.MenuItem).delete()
     db.query(models.Amenity).delete()
-    db.query(models.RestaurantImage).delete()
-    db.query(models.Restaurant).delete()
+    db.query(models.ListingImage).delete()
+    db.query(models.Listing).delete()
     db.commit()
     
     # Delete images in background to reduce lag
@@ -713,7 +833,7 @@ async def ingest_emulator_json(request: Request, district: str = "Unknown", main
         # Normal DB ingestion
         success_count = process_emulator_json(json_data, district, main_cat=main_cat)
         
-        return {"status": "success", "message": f"Successfully ingested {success_count} restaurants.", "count": success_count}
+        return {"status": "success", "message": f"Successfully ingested {success_count} listings.", "count": success_count}
     except Exception as e:
         print(f"Emulator JSON Ingestion failed: {e}")
         return {"status": "error", "message": str(e)}

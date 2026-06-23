@@ -2,8 +2,8 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
-# --- Restaurant Schemas ---
-class RestaurantBase(BaseModel):
+# --- Listing Schemas ---
+class ListingBase(BaseModel):
     name: str
     address: Optional[str] = None
     phone: Optional[str] = None
@@ -13,10 +13,10 @@ class RestaurantBase(BaseModel):
     district: Optional[str] = None
     state: Optional[str] = None
 
-class RestaurantCreate(RestaurantBase):
+class ListingCreate(ListingBase):
     pass
 
-class RestaurantResponse(RestaurantBase):
+class ListingResponse(ListingBase):
     id: int
     scraped_at: datetime
     
@@ -30,7 +30,7 @@ class ImageBase(BaseModel):
 
 class ImageResponse(ImageBase):
     id: int
-    restaurant_id: int
+    listing_id: int
     
     class Config:
         from_attributes = True

@@ -20,7 +20,7 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 # ==========================================
 # CONFIGURATION
 # ==========================================
-API_UPLOAD_URL = os.getenv("API_UPLOAD_URL", "http://localhost:8000/api/v1/upload-restaurant")
+API_UPLOAD_URL = os.getenv("API_UPLOAD_URL", "http://localhost:8000/api/v1/upload-listing")
 LOCAL_IMAGE_FOLDER = os.getenv("LOCAL_IMAGE_FOLDER", "./scraped_images")
 TARGET_DISTRICTS = [
     "https://www.justdial.com/Kasaragod/Restaurants/nct-10408936",
@@ -392,7 +392,7 @@ def download_images(scraped_categories: Dict[str, List[str]], restaurant_name: s
 
     return downloaded_paths, downloaded_categories
 
-def upload_restaurant(restaurant_url, details, downloaded_paths, downloaded_categories, district="", state="") -> bool:
+def upload_listing(restaurant_url, details, downloaded_paths, downloaded_categories, district="", state="") -> bool:
     data = {
         "name": details.get("name", "") or "",
         "phone": details.get("phone", "") or "",
@@ -447,7 +447,7 @@ def scrape_district(driver, base_url: str):
             downloaded_paths, downloaded_categories = download_images(scraped_categories, details.get("name", "Unknown"))
 
             log("   ☁️ Uploading to API...")
-            if upload_restaurant(restaurant_url, details, downloaded_paths, downloaded_categories):
+            if upload_listing(restaurant_url, details, downloaded_paths, downloaded_categories):
                 log("   ✅ Successfully uploaded!")
                 success_count += 1
         except Exception as e:
@@ -674,7 +674,7 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
                     downloaded_paths, downloaded_categories = download_images(scraped_categories, details.get("name", "Unknown"))
 
                     log("   ☁️ Uploading to API...")
-                    if upload_restaurant(url, details, downloaded_paths, downloaded_categories, district=district):
+                    if upload_listing(url, details, downloaded_paths, downloaded_categories, district=district):
                         log("   ✅ Successfully uploaded!")
                         scraped_count += 1
                     else:
@@ -704,7 +704,7 @@ def scrape_single_url(url: str, engine: str = "playwright", browser_type="chrome
             return False
         scraped_categories = scrape_gallery_images(driver, url)
         downloaded_paths, downloaded_categories = download_images(scraped_categories, details["name"])
-        res = upload_restaurant(url, details, downloaded_paths, downloaded_categories)
+        res = upload_listing(url, details, downloaded_paths, downloaded_categories)
         return res
     except Exception as e:
         log(f"Error in single scrape: {e}")

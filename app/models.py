@@ -3,8 +3,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
 
-class Restaurant(Base):
-    __tablename__ = "restaurants"
+class Listing(Base):
+    __tablename__ = "listings"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(500), nullable=False, index=True)
@@ -14,6 +14,7 @@ class Restaurant(Base):
     jd_url = Column(String(500))
     category = Column(String(200))
     subcategory = Column(String(200), nullable=True)
+    normalized_category = Column(String(100), nullable=True, index=True)  # Parent group: "Beauty & Spas", "Hotels & Restaurants", etc.
     opening_hours = Column(String(200))
     district = Column(String(100), nullable=True)
     place = Column(String(200), nullable=True)   # locality within district (e.g. Kuttikkanam)
@@ -23,41 +24,41 @@ class Restaurant(Base):
     latitude = Column(String(50), nullable=True)
     longitude = Column(String(50), nullable=True)
     
-    images = relationship("RestaurantImage", back_populates="restaurant", cascade="all, delete-orphan")
-    menu_items = relationship("MenuItem", back_populates="restaurant", cascade="all, delete-orphan")
-    amenities = relationship("Amenity", back_populates="restaurant", cascade="all, delete-orphan")
+    images = relationship("ListingImage", back_populates="listing", cascade="all, delete-orphan")
+    menu_items = relationship("MenuItem", back_populates="listing", cascade="all, delete-orphan")
+    amenities = relationship("Amenity", back_populates="listing", cascade="all, delete-orphan")
 
-class RestaurantImage(Base):
-    __tablename__ = "restaurant_images"
+class ListingImage(Base):
+    __tablename__ = "listing_images"
     
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    listing_id = Column(Integer, ForeignKey("listings.id"), nullable=False)
     image_path = Column(String(500))
     category = Column(String(50), default="general")
     is_primary = Column(Boolean, default=False)
     
-    restaurant = relationship("Restaurant", back_populates="images")
+    listing = relationship("Listing", back_populates="images")
 
 class MenuItem(Base):
     __tablename__ = "menu_items"
     
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    listing_id = Column(Integer, ForeignKey("listings.id"), nullable=False)
     name = Column(String(200))
     price = Column(String(50))
     is_veg = Column(Boolean, default=True)
     
-    restaurant = relationship("Restaurant", back_populates="menu_items")
+    listing = relationship("Listing", back_populates="menu_items")
 
 class Amenity(Base):
     __tablename__ = "amenities"
     
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    listing_id = Column(Integer, ForeignKey("listings.id"), nullable=False)
     category = Column(String(100))
     value = Column(String(200))
     
-    restaurant = relationship("Restaurant", back_populates="amenities")
+    listing = relationship("Listing", back_populates="amenities")
 
 # ==========================================
 # NEW: CATEGORY MODELS

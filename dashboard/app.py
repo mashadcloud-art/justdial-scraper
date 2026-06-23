@@ -16,7 +16,7 @@ try:
     if stats_res.status_code == 200:
         stats = stats_res.json()
         c1, c2, c3 = st.columns(3)
-        c1.metric("🏪 Total Scraped Restaurants", stats.get('total_restaurants', 0))
+        c1.metric("🏪 Total Scraped Listings", stats.get('total_listings', stats.get('total_restaurants', 0)))
         c2.metric("🖼️ Total Scraped Images", stats.get('total_images', 0))
         c3.metric("️ Total Scraped Menu Items", stats.get('total_menu_items', 0))
     else:
@@ -94,8 +94,8 @@ if st.button("🔍 Fetch JustDial Stats"):
 
 st.divider()
 
-# --- SECTION 3: VIEW SCRAPED RESTAURANTS ---
-st.header("🏪 View Your Scraped Restaurants")
+# --- SECTION 3: VIEW SCRAPED LISTINGS ---
+st.header("🏪 View Your Scraped Listings")
 
 col_search, col_refresh = st.columns([3, 1])
 with col_search:
@@ -105,13 +105,13 @@ with col_refresh:
     if st.button("🔄 Refresh"):
         st.rerun()
 
-def get_all_restaurants():
+def get_all_listings():
     all_data = []
     page = 1
     limit = 100
     while True:
         try:
-            res = requests.get(f"{API_URL}/restaurants", params={"page": page, "limit": limit}, timeout=10)
+            res = requests.get(f"{API_URL}/listings", params={"page": page, "limit": limit}, timeout=10)
             if res.status_code != 200:
                 break
             resp = res.json()
@@ -130,18 +130,18 @@ def get_all_restaurants():
     return all_data
 
 try:
-    all_restaurants = get_all_restaurants()
+    all_listings = get_all_listings()
     # Filter by search
     if search_query:
         q = search_query.lower()
-        all_restaurants = [r for r in all_restaurants if
+        all_listings = [r for r in all_listings if
             q in (r.get('name') or '').lower() or
             q in (r.get('phone') or '').lower() or
             q in (r.get('address') or '').lower()]
 
-    st.write(f"Showing **{len(all_restaurants)}** restaurants")
+    st.write(f"Showing **{len(all_listings)}** listings")
 
-    for r in all_restaurants:
+    for r in all_listings:
             with st.container(border=True):
                 col1, col2 = st.columns([1, 3])
                 with col1:
@@ -160,4 +160,4 @@ try:
                                 veg_icon = "" if item['is_veg'] else "🔴"
                                 st.markdown(f"{veg_icon} **{item['name']}** - ₹{item['price']}")
 except Exception as e:
-    st.error(f"Error loading restaurants: {e}")
+    st.error(f"Error loading listings: {e}")

@@ -18,7 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-API_UPLOAD_URL = os.getenv("API_UPLOAD_URL", "http://localhost:8000/api/v1/upload-restaurant")
+API_UPLOAD_URL = os.getenv("API_UPLOAD_URL", "http://localhost:8000/api/v1/upload-listing")
 DEFAULT_WAIT = 20
 SCROLL_PAUSE = 1.0
 
@@ -440,23 +440,23 @@ def extract_from_dom(soup: BeautifulSoup, driver) -> List[Dict]:
     return restaurants
 
 
-def upload_to_api(restaurant: Dict, district: str) -> bool:
-    """Upload a parsed restaurant to our local API."""
-    source_url = restaurant.get("source_url", "")
+def upload_to_api(listing: Dict, district: str) -> bool:
+    """Upload a parsed listing to our local API."""
+    source_url = listing.get("source_url", "")
     if not source_url:
-        source_url = f"https://www.justdial.com/{district.replace(' ', '-')}/{restaurant['name'].replace(' ', '-')}"
+        source_url = f"https://www.justdial.com/{district.replace(' ', '-')}/{listing['name'].replace(' ', '-')}"
     
     data = {
-        "name": restaurant["name"],
-        "phone": restaurant.get("phone", ""),
-        "address": restaurant.get("address", ""),
+        "name": listing["name"],
+        "phone": listing.get("phone", ""),
+        "address": listing.get("address", ""),
         "source_url": source_url,
-        "category": restaurant.get("category", ""),
+        "category": listing.get("category", ""),
         "opening_hours": "",
         "district": district,
     }
 
-    images = restaurant.get("images", [])
+    images = listing.get("images", [])
     if images:
         image_urls = [{"path": url, "category": "general"} for url in images[:20]]
         data["image_urls_json"] = json.dumps(image_urls)
@@ -523,19 +523,19 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
             
             log(f"Found {len(restaurants)} restaurants on page {page_num}!")
             
-            for restaurant in restaurants:
+            for listing in restaurants:
                 if scraped_count >= max_count:
                     break
                 
-                name = restaurant.get("name", "Unknown")
+                name = listing.get("name", "Unknown")
                 if not name or name == "Unknown" or len(name) < 2:
                     continue
                 
                 scraped_count += 1
-                phone = restaurant.get("phone", "")
-                addr = restaurant.get("address", "")
-                rating = restaurant.get("rating", "")
-                img_count = len(restaurant.get("images", []))
+                phone = listing.get("phone", "")
+                addr = listing.get("address", "")
+                rating = listing.get("rating", "")
+                img_count = len(listing.get("images", []))
                 
                 log(f"  [{scraped_count}/{max_count}] {name}")
                 if phone:
@@ -545,7 +545,7 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
                 if rating:
                     log(f"    Rating: {rating} | Images: {img_count}")
                 
-                if upload_to_api(restaurant, district):
+                if upload_to_api(listing, district):
                     log(f"    Uploaded!")
                 else:
                     log(f"    Upload failed.", ok=False)
