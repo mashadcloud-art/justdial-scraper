@@ -50,6 +50,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ALL_GRANULAR_CATEGORIES } from "@/lib/allCategories";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -136,7 +137,8 @@ const CATEGORIES = [
   "Automobiles", "Shopping", "Home Services", "Real Estate", "Travel & Tourism",
   "Events & Weddings", "Legal & Professional Services", "Computer & IT",
   "Home Decor & Furnishing", "Entertainment & Fitness", "Banks & Financial Services",
-  "Electronics & Electrical", "Government & Utilities"
+  "Electronics & Electrical", "Government & Utilities",
+  "All 1,485+ Granular Categories (A-Z)"
 ];
 
 const SUBCATEGORIES: Record<string, string[]> = {
@@ -157,6 +159,7 @@ const SUBCATEGORIES: Record<string, string[]> = {
   "Banks & Financial Services": ["Banks", "ATMs", "Loans", "Insurance Agents"],
   "Electronics & Electrical": ["Electrical Shops", "Hardware Shops", "Paint Dealers", "Sanitaryware"],
   "Government & Utilities": ["Post Offices", "Police Stations", "NGOs"],
+  "All 1,485+ Granular Categories (A-Z)": ALL_GRANULAR_CATEGORIES,
 };
 
 const MOCK_MENUS: MenuItem[][] = [
