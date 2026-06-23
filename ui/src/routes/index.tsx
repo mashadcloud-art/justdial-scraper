@@ -132,35 +132,10 @@ const CITIES: Record<string, string[]> = {
   "Chandigarh": ["Chandigarh","Mohali","Panchkula"],
   "Puducherry": ["Puducherry","Karaikal","Mahe","Yanam"],
 };
-const CATEGORIES = [
-  "Beauty & Spas", "Hotels & Restaurants", "Health & Medical", "Education",
-  "Automobiles", "Shopping", "Home Services", "Real Estate", "Travel & Tourism",
-  "Events & Weddings", "Legal & Professional Services", "Computer & IT",
-  "Home Decor & Furnishing", "Entertainment & Fitness", "Banks & Financial Services",
-  "Electronics & Electrical", "Government & Utilities",
-  "All 1,485+ Granular Categories (A-Z)"
-];
+import { MAPPED_SUBCATEGORIES } from "@/lib/mappedCategories";
 
-const SUBCATEGORIES: Record<string, string[]> = {
-  "Beauty & Spas": ["Beauty Parlours", "Salons", "Hair Stylist", "Massage Centres", "Bridal Makeup", "Tattoo"],
-  "Hotels & Restaurants": ["Restaurants", "Hotels", "Bakeries", "Cafes", "Fast Food", "Resorts", "Sweet Shops"],
-  "Health & Medical": ["Hospitals", "Clinics", "Dentists", "Pharmacies", "Ayurvedic Clinics", "Opticians"],
-  "Education": ["Schools", "Colleges", "Tutorials", "Computer Training", "Driving Schools"],
-  "Automobiles": ["Car Dealers", "Car Repair", "Bike Dealers", "Tyre Dealers", "Car Rental"],
-  "Shopping": ["Readymade Garments", "Jewellery", "Supermarkets", "Footwear", "Mobile Phone Dealers"],
-  "Home Services": ["Plumbers", "Electricians", "Carpenters", "Packers & Movers", "Pest Control"],
-  "Real Estate": ["Estate Agents", "Builders", "PG Accommodation", "Commercial Property"],
-  "Travel & Tourism": ["Travel Agents", "Tour Operators", "Cab Services", "Bus Services"],
-  "Events & Weddings": ["Event Organisers", "Wedding Planners", "Photographers", "Decorators"],
-  "Legal & Professional Services": ["Lawyers", "Chartered Accountants", "Consultants", "Placement Agencies"],
-  "Computer & IT": ["Computer Repair", "Software Companies", "Web Designers", "Laptop Dealers"],
-  "Home Decor & Furnishing": ["Furniture Dealers", "Interior Designers", "Mattress Dealers", "Curtain Dealers"],
-  "Entertainment & Fitness": ["Gyms", "Cinemas", "Sports Clubs", "Yoga Classes"],
-  "Banks & Financial Services": ["Banks", "ATMs", "Loans", "Insurance Agents"],
-  "Electronics & Electrical": ["Electrical Shops", "Hardware Shops", "Paint Dealers", "Sanitaryware"],
-  "Government & Utilities": ["Post Offices", "Police Stations", "NGOs"],
-  "All 1,485+ Granular Categories (A-Z)": ALL_GRANULAR_CATEGORIES,
-};
+const CATEGORIES = Object.keys(MAPPED_SUBCATEGORIES);
+const SUBCATEGORIES: Record<string, string[]> = MAPPED_SUBCATEGORIES;
 
 const MOCK_MENUS: MenuItem[][] = [
   [
@@ -2296,24 +2271,49 @@ function Dashboard() {
                   <div className="px-4 py-3 border-b border-border bg-muted/20 flex flex-wrap gap-3 items-end">
                     <div className="space-y-1 w-32">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">State</label>
-                      <select value={dbFilterState} onChange={(e) => { setDbFilterState(e.target.value); setDbFilterDistrict("All"); }} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                      <input 
+                        list="db-states" 
+                        value={dbFilterState} 
+                        onChange={(e) => { setDbFilterState(e.target.value); setDbFilterDistrict("All"); }}
+                        onFocus={(e) => { if(e.target.value === "All") setDbFilterState(""); }}
+                        onBlur={(e) => { if(!e.target.value) setDbFilterState("All"); }}
+                        className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand" 
+                      />
+                      <datalist id="db-states">
                         <option value="All">All States</option>
                         {STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      </datalist>
                     </div>
                     <div className="space-y-1 w-32">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">District</label>
-                      <select value={dbFilterDistrict} onChange={(e) => setDbFilterDistrict(e.target.value)} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                      <input 
+                        list="db-districts" 
+                        value={dbFilterDistrict} 
+                        onChange={(e) => setDbFilterDistrict(e.target.value)} 
+                        onFocus={(e) => { if(e.target.value === "All") setDbFilterDistrict(""); }}
+                        onBlur={(e) => { if(!e.target.value) setDbFilterDistrict("All"); }}
+                        className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand" 
+                      />
+                      <datalist id="db-districts">
                         <option value="All">All Districts</option>
                         {(CITIES[dbFilterState] || []).map(d => <option key={d} value={d}>{d}</option>)}
-                      </select>
+                      </datalist>
                     </div>
                     <div className="space-y-1 w-32">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Category</label>
-                      <select value={dbFilterCategory} onChange={(e) => setDbFilterCategory(e.target.value)} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                      <input 
+                        list="db-categories" 
+                        value={dbFilterCategory} 
+                        onChange={(e) => setDbFilterCategory(e.target.value)} 
+                        onFocus={(e) => { if(e.target.value === "All") setDbFilterCategory(""); }}
+                        onBlur={(e) => { if(!e.target.value) setDbFilterCategory("All"); }}
+                        className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand" 
+                        placeholder="Type to search..."
+                      />
+                      <datalist id="db-categories">
                         <option value="All">All Categories</option>
                         {Object.keys(SUBCATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
+                      </datalist>
                     </div>
                     <div className="space-y-1 w-48">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Search</label>
