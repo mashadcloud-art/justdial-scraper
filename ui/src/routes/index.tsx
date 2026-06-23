@@ -2285,7 +2285,7 @@ function Dashboard() {
 
             {/* ── DASHBOARD TAB ── */}
             {activeTab === "dashboard" && (
-              rows.length === 0 ? (
+              statsTotal === 0 ? (
                 <div className="rounded-xl ring-1 ring-border bg-card shadow-elegant p-12 text-center">
                   <Database className="size-8 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No data yet — run a scrape from the Scraper tab first.</p>
