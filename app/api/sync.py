@@ -319,13 +319,16 @@ def get_listings(
             models.Listing.subcategory.ilike(f"%{category}%")
         )
     if search:
-        query = query.filter(
-            models.Listing.name.ilike(f"%{search}%") |
-            models.Listing.category.ilike(f"%{search}%") |
-            models.Listing.address.ilike(f"%{search}%") |
-            models.Listing.phone.ilike(f"%{search}%") |
-            models.Listing.district.ilike(f"%{search}%")
-        )
+        # Split search into individual words for smarter matching across different columns
+        keywords = search.strip().split()
+        for kw in keywords:
+            query = query.filter(
+                models.Listing.name.ilike(f"%{kw}%") |
+                models.Listing.category.ilike(f"%{kw}%") |
+                models.Listing.address.ilike(f"%{kw}%") |
+                models.Listing.phone.ilike(f"%{kw}%") |
+                models.Listing.district.ilike(f"%{kw}%")
+            )
         
     total_count = query.count()
     
