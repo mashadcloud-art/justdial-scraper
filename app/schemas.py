@@ -8,6 +8,10 @@ class RestaurantBase(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     jd_url: Optional[str] = None
+    category: Optional[str] = None
+    opening_hours: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
 
 class RestaurantCreate(RestaurantBase):
     pass

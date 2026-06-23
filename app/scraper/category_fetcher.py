@@ -47,6 +47,9 @@ JUSTDIAL_MAIN_CATEGORIES = {
     },
     "Computer & IT": {
         "subcategories": ["Computer Training Institutes", "Software Companies", "IT Solution Providers", "Web Designing Services", "Computer Repair & Services", "Laptop Dealers"]
+    },
+    "Home Decor": {
+        "subcategories": ["Furnitures", "Furnishing", "Lamps-Lighting", "Kitchen-Dining", "Interior-Designers"]
     }
 }
 
@@ -67,10 +70,17 @@ def get_subcategories(category):
     return []
 
 
-def format_category_for_url(category):
-    """Format category name for JustDial URL"""
-    formatted = category.replace(" & ", "-").replace(" ", "-").replace("&", "-")
-    return formatted.lower()
+def format_category_for_url(text):
+    """Format text for JustDial URL - keeps Title Case (JustDial standard)"""
+    formatted = text.replace(" & ", "-").replace(" ", "-").replace("&", "-")
+    # JustDial uses Title-Case in URLs, e.g. /Thiruvananthapuram/Fast-Food
+    return formatted
+
+
+def format_city_for_url(city):
+    """Format city name for JustDial URL - capitalize each word"""
+    parts = city.replace(" ", "-").split("-")
+    return "-".join(p.capitalize() for p in parts)
 
 
 def save_categories_cache(data):
@@ -104,6 +114,6 @@ def fetch_categories_from_justdial(city="Kochi"):
 
 def build_search_url(city, category, subcategory=None):
     """Build JustDial search URL"""
-    city_formatted = format_category_for_url(city)
+    city_formatted = format_city_for_url(city)
     cat_formatted = format_category_for_url(subcategory if subcategory else category)
     return f"https://www.justdial.com/{city_formatted}/{cat_formatted}"

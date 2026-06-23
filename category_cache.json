@@ -183,5 +183,15 @@
       "Computer Repair & Services",
       "Laptop Dealers"
     ]
+  },
+  "Home Decor": {
+    "id": "1016",
+    "subcategories": [
+      "Furnitures",
+      "Furnishing",
+      "Lamps-Lighting",
+      "Kitchen-Dining",
+      "Interior-Designers"
+    ]
   }
 }

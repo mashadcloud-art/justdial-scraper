@@ -1,0 +1,45 @@
+J
+A
+Home /
+Scraper
+Alex R.
+TOTAL BUSINESSES
+0
++12% this hour
+SCRAPED TODAY
+0
+Ready
+IMAGES
+0.0k
+Stored locally
+SUCCESS RATE
+99.4%
+142 req/min
+Location & Category
+checking...
+STATE / UT
+Kerala
+DISTRICT / CITY
+Thiruvananthapuram
+MAIN CATEGORY
+Restaurants
+SUBCATEGORY
+Fast Food
+ENGINE
+⚡ API
+MAX ENTRIES
+Check Listings in Thiruvananthapuram
+⚡ Fast Mode (URLs only)
+Controls
+Status:
+Ready
+Start
+Stop
+Refresh
+Single URL Scraper
+JUSTDIAL URL
+Scrape This URL
+Activity Log
+3 entries
+VIEW →
+SYSTEM ONLINE · API healthy · backend.v3

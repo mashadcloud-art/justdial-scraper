@@ -5,7 +5,8 @@ import argparse
 from app.scraper.logger import log
 
 if os.name == "nt":
-    ADB_PATH = os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
+    ADB_PATH = bluestacks_adb if os.path.exists(bluestacks_adb) else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
 else:
     ADB_PATH = "adb"
 

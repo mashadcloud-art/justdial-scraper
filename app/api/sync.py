@@ -14,6 +14,41 @@ from app.database import get_db
 from app import models
 from config import settings
 from app_config import CONFIG as APP_CONFIG
+from app.scraper.emulator_parser import (
+    get_state_from_district,
+    extract_place_from_address,
+    detect_category_from_name
+)
+
+# Cuisine keywords to split category/subcategory
+CUISINE_KEYWORDS = [
+    "South Indian", "North Indian", "Punjabi", "Chinese", "Continental",
+    "Mughlai", "Bengali", "Gujarati", "Rajasthani", "Kerala", "Udupi",
+    "Multicuisine", "Fast Food", "Barbeque", "Buffet", "Sea Food", "Seafood",
+    "Veg", "Non Veg", "Street Food", "Desserts", "Italian", "Thai", "Mexican",
+    "Pure Veg", "Tandoor", "Biryani", "Barbecue", "Pizza", "Bakery",
+    "Ice Cream", "Juice", "Cafe", "Coffee", "Tea Stall", "Dhaba",
+    "Bar", "Lounge", "Fine Dining", "Family Restaurant", "Vegetarian",
+]
+
+def looks_like_cuisine_tags(category: str) -> bool:
+    if not category:
+        return False
+    cat_lower = category.lower()
+    return any(kw.lower() in cat_lower for kw in CUISINE_KEYWORDS)
+
+def process_category_subcategory(raw_category: str):
+    if not raw_category:
+        return "Restaurants", None
+    
+    if ">" in raw_category:
+        parts = raw_category.split(">", 1)
+        return parts[0].strip(), parts[1].strip()
+        
+    if looks_like_cuisine_tags(raw_category):
+        return "Restaurants", raw_category
+        
+    return raw_category, None
 
 # Ensure data folder exists
 os.makedirs(settings.DATA_FOLDER, exist_ok=True)
@@ -27,6 +62,39 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ROUTER INITIALIZATION
 # ==========================================
 router = APIRouter()
+
+def _get_adb_path():
+    if os.name == "nt":
+        bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
+        if os.path.exists(bluestacks_adb):
+            return bluestacks_adb
+        return os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    return "adb"
+
+def _get_adb_devices(adb_path):
+    try:
+        if os.name != "nt":
+            # On remote Linux server, connect to desktop emulator over Tailscale VPN
+            try:
+                subprocess.run(f'"{adb_path}" connect 100.97.77.69:5555', shell=True, timeout=8)
+            except Exception:
+                pass
+        else:
+            # On Windows local machine, connect to local BlueStacks instance
+            # ONLY connect if we are NOT using the BlueStacks HD-Adb.exe
+            if "HD-Adb.exe" not in adb_path:
+                try:
+                    subprocess.run(f'"{adb_path}" connect 127.0.0.1:5555', shell=True, timeout=5)
+                except Exception:
+                    pass
+        out = subprocess.check_output(f'"{adb_path}" devices', shell=True, text=True)
+        devices = []
+        for line in out.strip().splitlines()[1:]:
+            if line.strip() and "device" in line and "devices" not in line:
+                devices.append(line.split()[0])
+        return devices
+    except Exception:
+        return []
 
 # ==========================================
 # 1. UPLOAD RESTAURANT (Existing)
@@ -52,6 +120,19 @@ def upload_restaurant(
     db: Session = Depends(get_db)
 ):
     try:
+        # Segregate category & subcategory, assign state and place
+        cleaned_cat = category or ""
+        cleaned_sub = None
+        
+        if cleaned_cat:
+            cleaned_cat, cleaned_sub = process_category_subcategory(cleaned_cat)
+            
+        cleaned_state = state or get_state_from_district(district or "")
+        cleaned_place = extract_place_from_address(address or "", district or "")
+        
+        # Detect if business name contains building/complex keywords
+        cleaned_cat = detect_category_from_name(name, cleaned_cat)
+
         existing = db.query(models.Restaurant).filter(models.Restaurant.name == name).first()
         
         if existing:
@@ -61,9 +142,11 @@ def upload_restaurant(
             if whatsapp: restaurant.whatsapp = whatsapp
             if address: restaurant.address = address
             if opening_hours: restaurant.opening_hours = opening_hours
-            if category: restaurant.category = category
+            if cleaned_cat: restaurant.category = cleaned_cat
+            if cleaned_sub: restaurant.subcategory = cleaned_sub
             if district: restaurant.district = district
-            if state: restaurant.state = state
+            if cleaned_place: restaurant.place = cleaned_place
+            if cleaned_state: restaurant.state = cleaned_state
             if latitude: restaurant.latitude = latitude
             if longitude: restaurant.longitude = longitude
             restaurant.scraped_at = datetime.datetime.utcnow()
@@ -76,8 +159,8 @@ def upload_restaurant(
         else:
             restaurant = models.Restaurant(
                 name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
-                jd_url=source_url, category=category or "", opening_hours=opening_hours or "",
-                district=district or "", state=state or "", latitude=latitude or "", longitude=longitude or ""
+                jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, opening_hours=opening_hours or "",
+                district=district or "", place=cleaned_place or "", state=cleaned_state or "", latitude=latitude or "", longitude=longitude or ""
             )
             db.add(restaurant)
             db.flush()
@@ -165,7 +248,7 @@ def upload_restaurant(
 @router.get("/restaurants")
 def get_restaurants(
     page: int = 1, 
-    limit: int = 10000, 
+    limit: int = 1000000, 
     district: Optional[str] = None, 
     state: Optional[str] = None, 
     category: Optional[str] = None,
@@ -174,11 +257,15 @@ def get_restaurants(
     query = db.query(models.Restaurant)
     
     if state:
-        query = query.filter(models.Restaurant.state == state)
+        query = query.filter(models.Restaurant.state.ilike(f"%{state}%"))
     if district:
-        query = query.filter(models.Restaurant.district == district)
+        query = query.filter(models.Restaurant.district.ilike(f"%{district}%"))
     if category:
-        query = query.filter(models.Restaurant.category == category)
+        # Use LIKE so "Punjabi" matches "Punjabi, South Indian, Multicuisine"
+        query = query.filter(
+            models.Restaurant.category.ilike(f"%{category}%") |
+            models.Restaurant.subcategory.ilike(f"%{category}%")
+        )
         
     total_count = query.count()
     
@@ -323,14 +410,39 @@ from app.scraper.logger import scraper_logger, log
 
 scraping_in_progress = False
 scraping_started_at = None  # Track when scraping started
+adb_search_in_progress = False
+
+def _clear_stop_flag():
+    flag_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "scrape_stop.flag")
+    if os.path.exists(flag_path):
+        try:
+            os.remove(flag_path)
+        except:
+            pass
+
+@router.post("/scrape/stop")
+def stop_scrape():
+    global scraping_in_progress, scraping_started_at, adb_search_in_progress
+    scraping_in_progress = False
+    scraping_started_at = None
+    adb_search_in_progress = False
+    
+    flag_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "scrape_stop.flag")
+    os.makedirs(os.path.dirname(flag_path), exist_ok=True)
+    with open(flag_path, "w") as f:
+        f.write("stop")
+    log("🛑 Scraper stop requested by user (stop flag created).")
+    return {"status": "stopped", "message": "Scraper stop signal sent."}
 
 @router.post("/scrape/reset")
 def reset_scrape_lock():
     """Force-reset the scrape lock if a task got stuck"""
-    global scraping_in_progress, scraping_started_at
+    global scraping_in_progress, scraping_started_at, adb_search_in_progress
     was_locked = scraping_in_progress
     scraping_in_progress = False
     scraping_started_at = None
+    adb_search_in_progress = False
+    _clear_stop_flag()
     return {"status": "reset", "was_locked": was_locked, "message": "Scrape lock cleared."}
 
 @router.post("/scrape")
@@ -346,6 +458,7 @@ def trigger_scrape(
     background_tasks: BackgroundTasks = None
 ):
     global scraping_in_progress, scraping_started_at
+    _clear_stop_flag()
     if scraping_in_progress:
         # Auto-expire lock if stuck for more than 30 minutes
         import time as _time
@@ -384,7 +497,7 @@ def trigger_scrape(
                         from app.scraper.adb_location_search import automate_location_search
                         search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
                         log(f"ADB Emulator: Starting search for '{search_cat}' in '{city}' with {max_limit} scrolls.")
-                        automate_location_search([city], search_cat, scrolls=max_limit)
+                        automate_location_search([city], search_cat, scrolls=max_limit, city=city)
                     else:
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                 except Exception as inner_e:
@@ -431,6 +544,7 @@ from app.scraper.desktop_scraper import scrape_single_url
 @router.post("/scrape/single")
 def trigger_single_scrape(url: str, fast_mode: bool = False, engine: str = "playwright", background_tasks: BackgroundTasks = None):
     global scraping_in_progress, scraping_started_at
+    _clear_stop_flag()
     if scraping_in_progress:
         import time as _time
         if scraping_started_at and (_time.time() - scraping_started_at) > 1800:
@@ -552,7 +666,7 @@ smart_scrape_state = {
 }
 
 @router.post("/ingest-emulator-json")
-async def ingest_emulator_json(request: Request, district: str = "Unknown"):
+async def ingest_emulator_json(request: Request, district: str = "Unknown", main_cat: str = ""):
     """
     Accepts raw JSON payload intercepted from JustDial mobile API (via HTTP Toolkit).
     Parses it and inserts it into the database, or compiles it to a file if Smart Scrape is active.
@@ -597,7 +711,7 @@ async def ingest_emulator_json(request: Request, district: str = "Unknown"):
             return {"status": "success", "message": f"Appended to {file_path}", "count": len(existing)}
 
         # Normal DB ingestion
-        success_count = process_emulator_json(json_data, district)
+        success_count = process_emulator_json(json_data, district, main_cat=main_cat)
         
         return {"status": "success", "message": f"Successfully ingested {success_count} restaurants.", "count": success_count}
     except Exception as e:
@@ -628,8 +742,6 @@ def ingest_saved_folder(district: str = "Unknown", folder_path: str = r"c:\Users
                     data = json.load(f)
                 count = process_emulator_json(data, district)
                 total_success += count
-                # Optional: Delete or rename file after successful ingestion so it isn't ingested again
-                # os.rename(file_path, file_path + ".ingested")
             except Exception as file_err:
                 print(f"Failed to ingest file {file_path}: {file_err}")
                 
@@ -642,12 +754,51 @@ def ingest_saved_folder(district: str = "Unknown", folder_path: str = r"c:\Users
         print(f"Bulk folder ingestion failed: {e}")
         return {"status": "error", "message": str(e)}
 
+@router.post("/ingest-uploaded-file")
+async def ingest_uploaded_file(
+    file: UploadFile = File(...),
+    district: str = Form("Unknown"),
+    category: str = Form("Unknown")
+):
+    """
+    Accepts an uploaded JSON file, parses it, and inserts it into the database under a specific category and district.
+    """
+    try:
+        from app.scraper.emulator_parser import process_emulator_json
+        import json
+        
+        contents = await file.read()
+        try:
+            data = json.loads(contents.decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid JSON file format.")
+
+        # In case the JSON payload contains "json_data" key, process it, otherwise wrap it
+        if isinstance(data, dict) and "json_data" not in data:
+            # Wrap standard raw JSON so emulator_parser can process it
+            payload = {
+                "json_data": json.dumps(data),
+                "district": district,
+                "category": category
+            }
+        else:
+            payload = data
+            if isinstance(payload, dict):
+                if district != "Unknown":
+                    payload["district"] = district
+                if category != "Unknown":
+                    payload["category"] = category
+
+        success_count = process_emulator_json(payload, district)
+        return {"status": "success", "message": f"Successfully ingested {success_count} listings.", "count": success_count}
+    except Exception as e:
+        print(f"Uploaded file ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==========================================
 # 9. TRIGGER ADB LOCATION SEARCH (Emulator Bridge)
 # ==========================================
 from app.scraper.adb_location_search import automate_location_search
-
-adb_search_in_progress = False
 
 @router.post("/adb/search")
 def trigger_adb_search(
@@ -657,6 +808,7 @@ def trigger_adb_search(
     background_tasks: BackgroundTasks = None
 ):
     global adb_search_in_progress
+    _clear_stop_flag()
     if adb_search_in_progress:
         raise HTTPException(status_code=400, detail="ADB search is already in progress on the emulator.")
         
@@ -668,7 +820,7 @@ def trigger_adb_search(
         try:
             adb_search_in_progress = True
             log(f"ADB Bridge: Starting emulator search for category '{category}' in location '{location}' with {scrolls} scrolls.")
-            automate_location_search([location], category, scrolls)
+            automate_location_search([location], category, scrolls, city=location)
             log("ADB Bridge: Completed search successfully.")
         except Exception as e:
             log(f"ADB Bridge: Search failed: {e}", ok=False)
@@ -695,12 +847,9 @@ def get_adb_screenshot():
     import os
     from fastapi.responses import FileResponse
     
-    if os.name == "nt":
-        adb_path = os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
-        target = ""
-    else:
-        adb_path = "adb"
-        target = "-s 100.97.77.69:5555"
+    adb_path = _get_adb_path()
+    devices = _get_adb_devices(adb_path)
+    target = f"-s {devices[0]}" if devices else ""
         
     img_path = "/tmp/emulator_screen.png" if os.name != "nt" else "emulator_screen.png"
     
@@ -744,6 +893,8 @@ def trigger_smart_scrape(
     background_tasks: BackgroundTasks = None
 ):
     global adb_search_in_progress, smart_scrape_state
+    import os, json
+    _clear_stop_flag()
     if adb_search_in_progress:
         raise HTTPException(status_code=400, detail="ADB search is already in progress.")
         
@@ -762,7 +913,6 @@ def trigger_smart_scrape(
     
     if not subcategories:
         # Fallback to category_cache.json
-        import os, json
         cache_file = os.path.join(os.path.dirname(__file__), "..", "..", "category_cache.json")
         if os.path.exists(cache_file):
             with open(cache_file, "r", encoding="utf-8") as f:
@@ -811,10 +961,18 @@ def trigger_smart_scrape(
             log(f"SMART SCRAPE: Starting {district}. Found {len(pincodes)} locations and {len(subcategories)} subcategories.")
             
             for sub in subcategories:
+                from app.scraper.adb_location_search import check_stop_flag
+                if check_stop_flag():
+                    log("🛑 SMART SCRAPE: Stopped by user request. Exiting outer loop.")
+                    break
                 log(f"SMART SCRAPE: Processing subcategory -> {sub}")
-                automate_location_search(pincodes, sub, scrolls)
+                automate_location_search(pincodes, sub, scrolls, city=district)
                 
-            log(f"SMART SCRAPE: Completed successfully! Compiled JSON saved to {compile_file}")
+            from app.scraper.adb_location_search import check_stop_flag
+            if check_stop_flag():
+                log("🛑 SMART SCRAPE: Exited early due to user stop request.")
+            else:
+                log(f"SMART SCRAPE: Completed successfully! Compiled JSON saved to {compile_file}")
             
         except Exception as e:
             log(f"SMART SCRAPE: Failed with error: {e}", ok=False)
@@ -846,22 +1004,7 @@ def _get_local_ip():
         s.close()
     return IP
 
-def _get_adb_devices(adb_path):
-    try:
-        if os.name != "nt":
-            # On remote Linux server, connect to desktop emulator over Tailscale VPN
-            try:
-                subprocess.run(f'"{adb_path}" connect 100.97.77.69:5555', shell=True, timeout=8)
-            except Exception:
-                pass
-        out = subprocess.check_output(f'"{adb_path}" devices', shell=True, text=True)
-        devices = []
-        for line in out.strip().splitlines()[1:]:
-            if line.strip() and "device" in line and "devices" not in line:
-                devices.append(line.split()[0])
-        return devices
-    except Exception:
-        return []
+# _get_adb_devices is defined at the top of the file
 
 @router.post("/adb/proxy/start")
 def api_start_proxy():
@@ -887,7 +1030,7 @@ def api_start_proxy():
             pass
 
     # 3. Start mitmdump
-    adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    adb_path = _get_adb_path()
     
     # Dynamically locate mitmdump path based on environment
     import sys
@@ -967,7 +1110,7 @@ def api_stop_proxy():
         pass
         
     # 2. Reset phone proxy on all connected devices
-    adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+    adb_path = _get_adb_path()
     devices = _get_adb_devices(adb_path)
     
     for device in devices:
@@ -1003,7 +1146,7 @@ def api_proxy_status():
     # Also check if phone proxy is routed on the first connected device
     phone_proxy = "Unknown"
     try:
-        adb_path = "adb" if os.name != "nt" else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+        adb_path = _get_adb_path()
         devices = _get_adb_devices(adb_path)
         if devices:
             device = devices[0]
@@ -1065,3 +1208,30 @@ def delete_compiled_json(filename: str):
         return {"status": "deleted", "message": f"Deleted {filename} successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/compiled-jsons/{filename}/ingest")
+def ingest_compiled_json(filename: str):
+    compiled_folder = os.path.join(os.path.dirname(__file__), "..", "..", "data", "compiled_jsons")
+    path = os.path.abspath(os.path.join(compiled_folder, filename))
+    if not path.startswith(os.path.abspath(compiled_folder)):
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+        
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found.")
+        
+    try:
+        from app.scraper.emulator_parser import process_emulator_json
+        import json
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        # Try to infer district from filename (e.g. Thiruvananthapuram_Fast Food_Compiled.json)
+        district = "Unknown"
+        if "_" in filename:
+            district = filename.split("_")[0]
+            
+        count = process_emulator_json(data, district)
+        return {"status": "success", "message": f"Successfully ingested {count} listings from {filename}.", "count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest: {str(e)}")

@@ -7,14 +7,21 @@ class Restaurant(Base):
     __tablename__ = "restaurants"
     
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(500), nullable=False)
+    name = Column(String(500), nullable=False, index=True)
     address = Column(Text)
     phone = Column(String(50))
     whatsapp = Column(String(50))
     jd_url = Column(String(500))
     category = Column(String(200))
+    subcategory = Column(String(200), nullable=True)
     opening_hours = Column(String(200))
+    district = Column(String(100), nullable=True)
+    place = Column(String(200), nullable=True)   # locality within district (e.g. Kuttikkanam)
+    state = Column(String(100), nullable=True)
     scraped_at = Column(DateTime, default=datetime.utcnow)
+    
+    latitude = Column(String(50), nullable=True)
+    longitude = Column(String(50), nullable=True)
     
     images = relationship("RestaurantImage", back_populates="restaurant", cascade="all, delete-orphan")
     menu_items = relationship("MenuItem", back_populates="restaurant", cascade="all, delete-orphan")

@@ -66,6 +66,8 @@ type Business = {
   name: string;
   category: string;
   location: string;
+  state?: string;
+  district?: string;
   address: string;
   phone: string;
   whatsapp: string;
@@ -80,7 +82,7 @@ type Business = {
   amenities: { category: string; value: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | { type: "detail"; business: Business };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
 
@@ -253,10 +255,11 @@ function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [listingCount, setListingCount] = useState<string | null>(null);
   const [fetchingCount, setFetchingCount] = useState(false);
-  const [engine, setEngine] = useState("api");
+  const [engine, setEngine] = useState("emulator");
   const [emulatorJson, setEmulatorJson] = useState("");
   const [ingestingJson, setIngestingJson] = useState(false);
   const [adbLocation, setAdbLocation] = useState("");
+  const [customCategory, setCustomCategory] = useState("");
   const [importUrl, setImportUrl] = useState("");
   const [importingUrl, setImportingUrl] = useState(false);
   const [categoryTree, setCategoryTree] = useState<any[]>([]);
@@ -272,6 +275,11 @@ function Dashboard() {
   const [viewingJsonContent, setViewingJsonContent] = useState<string | null>(null);
   const [viewingJsonFilename, setViewingJsonFilename] = useState<string | null>(null);
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+
+  // DB View Filters
+  const [dbFilterState, setDbFilterState] = useState("All");
+  const [dbFilterDistrict, setDbFilterDistrict] = useState("All");
+  const [dbFilterCategory, setDbFilterCategory] = useState("All");
 
   // Poll proxy status
   useEffect(() => {
@@ -303,9 +311,31 @@ function Dashboard() {
     finally { setLoadingJsons(false); }
   }
 
+  async function ingestCompiledJson(filename: string) {
+    try {
+      const res = await fetch(`${API}/compiled-jsons/${filename}/ingest`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || `Successfully uploaded ${filename}`);
+      } else {
+        toast.error(data.detail || `Failed to upload ${filename}`);
+      }
+    } catch (e: any) {
+      toast.error(`Error uploading file: ${e.message}`);
+    }
+  }
+
   useEffect(() => {
     fetchCompiledJsons();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "scraper") {
+      setEngine("emulator");
+    } else if (activeTab === "web_scraper") {
+      setEngine("selenium");
+    }
+  }, [activeTab]);
 
   // Toggle Proxy Routing
   async function toggleProxyRouting() {
@@ -409,6 +439,49 @@ function Dashboard() {
   useEffect(() => {
     fetchStats();
     fetchRestaurants();
+
+    // Check if scraper is already running in backend on load
+    const checkActiveScrapers = async () => {
+      try {
+        const adbStatusRes = await fetch(`${LOCAL_API}/adb/status`);
+        const adbData = await adbStatusRes.json();
+        const generalStatusRes = await fetch(`${API}/scrape/status`);
+        const generalData = await generalStatusRes.json();
+        
+        if (adbData.running || generalData.running) {
+          setRunning(true);
+          setStatus("Scraping...");
+          
+          let lastIdx = 0;
+          const intervalId = setInterval(async () => {
+            try {
+              const statusRes = await fetch(`${API}/scrape/status?last_idx=${lastIdx}`);
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.logs && statusData.logs.length > 0) {
+                  setLog((l) => [...l, ...statusData.logs]);
+                  lastIdx = statusData.next_idx;
+                }
+                
+                const checkAdb = await fetch(`${LOCAL_API}/adb/status`);
+                const adbStatus = await checkAdb.json();
+                
+                if (statusData.running === false && adbStatus.running === false) {
+                  clearInterval(intervalId);
+                  setRunning(false);
+                  setStatus("Complete");
+                  toast.success("Scrape Complete", { description: "Active background scrape completed!" });
+                  await fetchRestaurants();
+                  await fetchStats();
+                }
+              }
+            } catch { /* ignore */ }
+          }, 1500);
+          timerRef.current = intervalId;
+        }
+      } catch { /* ignore */ }
+    };
+    checkActiveScrapers();
   }, []);
 
   async function fetchStats() {
@@ -440,7 +513,7 @@ function Dashboard() {
 
   async function fetchRestaurants() {
     try {
-      const res = await fetch(`${API}/restaurants?page=1&limit=1000`);
+      const res = await fetch(`${API}/restaurants?page=1&limit=1000000`);
       if (res.ok) {
         const responseData = await res.json();
         const data: any[] = responseData.data || [];
@@ -449,6 +522,8 @@ function Dashboard() {
           name: r.name,
           category: r.category || "General",
           location: r.address?.split(",").slice(-2).join(",").trim() || "—",
+          state: r.state,
+          district: r.district,
           address: r.address || "—",
           phone: r.phone || "—",
           whatsapp: r.whatsapp || r.phone || "—",
@@ -473,8 +548,6 @@ function Dashboard() {
             category: a.category || "General",
             value: a.value || ""
           })),
-          latitude: r.latitude || "",
-          longitude: r.longitude || "",
         }));
         setRows(mapped);
         setTotalScraped(mapped.length);
@@ -558,57 +631,6 @@ function Dashboard() {
   function closeDetail(id: string) {
     setDetailTabs((dt) => dt.filter((t) => t.id !== id));
     setActiveTab("dashboard");
-  }
-
-  async function ingestEmulatorJson() {
-    if (!emulatorJson.trim()) {
-      toast.error("Please paste the JSON first");
-      return;
-    }
-    try {
-      // Basic validation
-      const parsed = JSON.parse(emulatorJson);
-      if (!parsed.results || !parsed.results.data) {
-        toast.error("Invalid JSON format. Make sure it contains results.data");
-        return;
-      }
-    } catch (e) {
-      toast.error("Invalid JSON string. Could not parse.");
-      return;
-    }
-
-    setIngestingJson(true);
-    addLog(true, "Ingesting Mobile Emulator JSON...");
-    try {
-      const res = await fetch(`${API}/ingest-emulator-json`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          json_data: emulatorJson,
-          state,
-          district: city,
-          category,
-          subcategory
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        toast.success(`Successfully extracted ${data.extracted_count} businesses!`);
-        addLog(true, `Emulator Ingestion complete: extracted ${data.extracted_count} records.`);
-        setEmulatorJson(""); // Clear input
-        await fetchRestaurants();
-        await fetchStats();
-      } else {
-        toast.error("Failed to ingest JSON");
-        addLog(false, "Failed to ingest JSON from backend");
-      }
-    } catch (e) {
-      toast.error("Network error submitting JSON");
-      addLog(false, "Network error submitting JSON");
-    } finally {
-      setIngestingJson(false);
-    }
   }
 
   async function startScraping() {
@@ -762,10 +784,11 @@ function Dashboard() {
     setRunning(true);
     setStatus("Scraping...");
     setProgress(10);
-    addLog(true, `Starting Emulator Search: Location '${adbLocation}', Category '${category}', Scrolls ${maxEntries}`);
+    const activeCategory = customCategory.trim() || subcategory || category;
+    addLog(true, `Starting Emulator Search: Location '${adbLocation}', Category '${activeCategory}', Scrolls ${maxEntries}`);
     
     try {
-      const url = `${LOCAL_API}/adb/search?location=${encodeURIComponent(adbLocation.trim())}&category=${encodeURIComponent(category)}&scrolls=${maxEntries}`;
+      const url = `${LOCAL_API}/adb/search?location=${encodeURIComponent(adbLocation.trim())}&category=${encodeURIComponent(activeCategory)}&scrolls=${maxEntries}`;
       const res = await fetch(url, { method: "POST" });
       if (res.ok) {
         addLog(true, "ADB search task successfully submitted to emulator. Running...");
@@ -821,12 +844,17 @@ function Dashboard() {
     }
   }
 
-  function stopScraping() {
+  async function stopScraping() {
     if (timerRef.current) clearInterval(timerRef.current);
     setRunning(false);
     setStatus("Stopped");
     addLog(false, "Scraping stopped by user.");
     toast.error("Scraping stopped");
+    try {
+      await fetch(`${API}/scrape/stop`, { method: "POST" });
+    } catch {
+      // Ignore network errors
+    }
   }
 
   async function refreshCategories() {
@@ -962,6 +990,10 @@ function Dashboard() {
 
   const filtered = [...rows]
     .filter((r) => { 
+      if (dbFilterState !== "All" && r.state !== dbFilterState) return false;
+      if (dbFilterDistrict !== "All" && r.district !== dbFilterDistrict) return false;
+      if (dbFilterCategory !== "All" && !r.category.toLowerCase().includes(dbFilterCategory.toLowerCase())) return false;
+      
       const q = searchQuery.toLowerCase(); 
       return !q || 
         r.name.toLowerCase().includes(q) || 
@@ -1069,6 +1101,7 @@ function Dashboard() {
         {/* Nav items */}
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => setActiveTab("scraper")}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<AppWindow className="size-4" />}     label="Web Scraper"     active={activeTab === "web_scraper"} onClick={() => setActiveTab("web_scraper")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<MapPin className="size-4" />}         label="Maps Scraper"  active={activeTab === "gmaps"}     onClick={() => setActiveTab("gmaps")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
@@ -1152,7 +1185,7 @@ function Dashboard() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -1220,6 +1253,76 @@ function Dashboard() {
               </div>
             )}
 
+            {/* ── GLOBAL SCRAPING STATUS OVERLAY ── */}
+            {(running || status !== "Ready") && (
+              maximized ? (
+                <section className="p-4 rounded-2xl ring-1 ring-border bg-card shadow-elegant flex items-center justify-between gap-6 animate-entrance">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2.5 rounded-xl bg-brand/10 text-brand">
+                      <Activity className={cn("size-5", running && "animate-pulse")} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Active Scraping Session</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Status: <span className={cn("font-medium", statusColor)}>{status}</span>
+                      </p>
+                    </div>
+                  </div>
+                  {running && (
+                    <div className="flex-1 max-w-md space-y-1.5">
+                      <div className="flex justify-between text-xs font-mono font-semibold">
+                        <span className="text-muted-foreground">Overall Progress</span>
+                        <span className="text-brand">{Math.round(progress)}%</span>
+                      </div>
+                      <Progress value={progress} className="h-1.5" />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3">
+                    {running && (
+                      <Button onClick={stopScraping} variant="destructive" size="sm" className="h-9 px-4 text-xs font-semibold">
+                        <Square className="size-3.5 mr-1.5" /> Stop Scraping
+                      </Button>
+                    )}
+                    {!running && (
+                      <Button onClick={() => setStatus("Ready")} variant="outline" size="sm" className="h-9 px-3 text-xs">
+                        Dismiss
+                      </Button>
+                    )}
+                  </div>
+                </section>
+              ) : (
+                <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant flex flex-col gap-2 animate-entrance">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <Activity className={cn("size-3.5 text-brand", running && "animate-pulse")} />
+                      <span className="font-semibold">Scraper: {status}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {running && (
+                        <button onClick={stopScraping} className="flex items-center gap-1 text-[10px] font-semibold text-red-500 hover:text-red-600 bg-red-500/10 px-2 py-0.5 rounded transition-all">
+                          <Square className="size-2.5" /> Stop
+                        </button>
+                      )}
+                      {!running && (
+                        <button onClick={() => setStatus("Ready")} className="text-[10px] text-muted-foreground hover:text-foreground bg-muted px-2 py-0.5 rounded transition-all">
+                          Dismiss
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {running && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] font-mono">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="text-brand font-semibold">{Math.round(progress)}%</span>
+                      </div>
+                      <Progress value={progress} className="h-1" />
+                    </div>
+                  )}
+                </section>
+              )
+            )}
+
             {/* ── SCRAPER TAB ── */}
             {activeTab === "scraper" && (
               maximized ? (
@@ -1264,30 +1367,6 @@ function Dashboard() {
                             options={getSubcategoryOptions()}
                           />
                         </FormField>
-                        <FormField label="Scraper Engine">
-                          <StyledSelectLg
-                            value={
-                              engine === "api" ? "⚡ API (Chrome)" : 
-                              engine === "api_edge" ? "⚡ API (Edge)" : 
-                              engine === "selenium" ? "Chrome Driver" : 
-                              engine === "edge" ? "Edge Driver" : 
-                              engine === "playwright" ? "Playwright (Chrome)" : 
-                              engine === "playwright_edge" ? "Playwright (Edge)" : 
-                              engine === "emulator" ? "📱 Mobile Emulator" : 
-                              "Playwright (Chrome)"
-                            }
-                            onChange={(v) => {
-                              if (v.includes("API (Chrome)")) setEngine("api");
-                              else if (v.includes("API (Edge)")) setEngine("api_edge");
-                              else if (v.includes("Chrome Driver")) setEngine("selenium");
-                              else if (v.includes("Edge Driver")) setEngine("edge");
-                              else if (v.includes("Playwright (Chrome)")) setEngine("playwright");
-                              else if (v.includes("Playwright (Edge)")) setEngine("playwright_edge");
-                              else if (v.includes("Mobile")) setEngine("emulator");
-                            }}
-                            options={["⚡ API (Chrome)", "⚡ API (Edge)", "Chrome Driver", "Edge Driver", "Playwright (Chrome)", "Playwright (Edge)", "📱 Mobile Emulator"]}
-                          />
-                        </FormField>
                         <FormField label="Max Entries">
                           <input
                             type="number" min={1} max={500} value={maxEntries}
@@ -1295,154 +1374,87 @@ function Dashboard() {
                             className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                           />
                         </FormField>
+                        <FormField label="Target Location (PIN or Town)">
+                          <input 
+                            type="text" 
+                            value={adbLocation} 
+                            onChange={(e) => setAdbLocation(e.target.value)} 
+                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                            placeholder="e.g. 671122 Thalangara" 
+                          />
+                        </FormField>
+                        <FormField label="Search Category (Optional override)">
+                          <input 
+                            type="text" 
+                            value={customCategory} 
+                            onChange={(e) => setCustomCategory(e.target.value)} 
+                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                            placeholder="e.g. Wedding Organisers, Costumes On Rent" 
+                          />
+                        </FormField>
                       </div>
                       
 
 
-                      {/* Fast Mode Checkbox */}
-                      <div className="flex items-center gap-2 mt-2">
-                        <Checkbox id="fastModeLg" checked={fastMode} onCheckedChange={(checked) => setFastMode(!!checked)} />
-                        <label htmlFor="fastModeLg" className="text-xs font-semibold text-muted-foreground cursor-pointer select-none">
-                          ⚡ Fast Mode (URLs only — No image downloads)
-                        </label>
-                      </div>
-
-                      {/* Category URL Importer */}
-                      <div className="border-t pt-4 mt-4 space-y-2">
-                        <label className="text-xs font-semibold block">
-                          📥 Import Categories from JustDial URL
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={importUrl}
-                            onChange={(e) => setImportUrl(e.target.value)}
-                            placeholder="https://www.justdial.com/Kutch/Home-Decor/fil-297"
-                            className="flex-1 h-9 rounded-lg px-3 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
-                          />
-                          <Button 
-                            onClick={handleImportUrl} 
-                            disabled={importingUrl}
-                            size="sm"
-                            className="h-9 px-3 bg-brand text-white font-medium rounded-lg text-xs shrink-0"
-                          >
-                            {importingUrl ? "Importing..." : "Import"}
-                          </Button>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          Paste a JustDial category page URL (e.g., Home Decor) to automatically parse and load all its subcategories into the selectors.
-                        </p>
+                      {/* Emulator controls in left card */}
+                      <div className="grid grid-cols-2 gap-3 border-t pt-4 mt-4">
+                        <Button 
+                          onClick={triggerAdbSearch} 
+                          disabled={running}
+                          className="h-10 text-white font-medium shadow-brand text-xs" 
+                          style={{ background: running ? undefined : "var(--gradient-brand)" }}
+                        >
+                          {running ? "Running..." : "Manual PIN Search"}
+                        </Button>
+                        <Button 
+                          onClick={async () => {
+                            const activeCategory = customCategory.trim() || subcategory || category;
+                            if (!state || !city || !activeCategory) {
+                              toast.error("Please select State, District, and Category first!");
+                              return;
+                            }
+                            try {
+                              setRunning(true);
+                              addLog(true, "Starting Smart Deep Scrape via ADB...");
+                              const targetLocParam = adbLocation.trim() ? `&target_location=${encodeURIComponent(adbLocation.trim())}` : '';
+                              const res = await fetch(`${LOCAL_API}/adb/smart-scrape?state=${state}&district=${city}&main_category=${activeCategory}&scrolls=${maxEntries}${targetLocParam}`, { method: 'POST' });
+                              const data = await res.json();
+                              if (data.status === 'started') {
+                                toast.success(data.message);
+                                addLog(true, `[Smart Scrape] ${data.message}`);
+                              } else {
+                                throw new Error(data.detail || data.message || "Failed to start");
+                              }
+                            } catch (e: any) {
+                              setRunning(false);
+                              toast.error(e.message);
+                              addLog(false, `[Smart Scrape] Error: ${e.message}`);
+                            }
+                          }} 
+                          disabled={running}
+                          className="h-10 text-white font-medium shadow-brand text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700" 
+                        >
+                          🚀 Deep Smart Scrape
+                        </Button>
                       </div>
                     </section>
 
                     {/* Right column */}
                     <div className="flex flex-col gap-5">
-                      {/* Controls */}
-                      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-base font-semibold">Controls</h3>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">Status:</span>
-                            <span className={cn("text-sm font-semibold", statusColor)}>{status}</span>
-                            {running && <span className="size-2 rounded-full bg-amber-400 animate-pulse" />}
-                          </div>
-                        </div>
-                        {running && (
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between text-xs font-medium">
-                              <span className="text-muted-foreground">Processing records...</span>
-                              <span className="text-brand font-mono">{Math.round(progress)}%</span>
-                            </div>
-                            <Progress value={progress} className="h-1.5" />
-                          </div>
-                        )}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <Button onClick={startScraping} disabled={running} className="h-10 text-white font-medium shadow-brand" style={{ background: running ? undefined : "var(--gradient-brand)" }}>
-                            <Play className="size-4 mr-2" />{running ? "Running..." : "Start Scraping"}
-                          </Button>
-                          <Button onClick={stopScraping} disabled={!running} variant="outline" className="h-10">
-                            <Square className="size-4 mr-2" />Stop Scraping
-                          </Button>
-                          <Button onClick={refreshCategories} variant="secondary" className="h-10">
-                            <RefreshCw className="size-4 mr-2" />Refresh
-                          </Button>
-                        </div>
-                      </section>
 
                       {/* Emulator Control Center */}
                       {engine === "emulator" && (
                         <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-6">
                           <div className="flex items-center gap-2 border-b pb-3">
                             <Database className="size-5 text-brand" />
-                            <h3 className="text-base font-semibold">📱 Emulator Control Center</h3>
+                            <h3 className="text-base font-semibold">📱 Emulator Settings</h3>
                           </div>
                           
-                          {/* Sub-section 1: Remote Control Search */}
                           <div className="space-y-3">
-                            <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                              <Play className="size-3.5 text-brand" />
-                              1. Remote Emulator Search
-                            </h4>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              Automatically launch JustDial, type the location PIN/Town, and scroll the listing page to capture payloads.
-                            </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                              <div className="col-span-1 sm:col-span-2">
-                                <FormField label="Target Location (PIN or Town)">
-                                  <input 
-                                    type="text" 
-                                    value={adbLocation} 
-                                    onChange={(e) => setAdbLocation(e.target.value)} 
-                                    className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
-                                    placeholder="e.g. 671315" 
-                                  />
-                                </FormField>
-                              </div>
-                              <Button 
-                                onClick={triggerAdbSearch} 
-                                disabled={running}
-                                className="w-full h-10 text-white font-medium shadow-brand text-xs" 
-                                style={{ background: running ? undefined : "var(--gradient-brand)" }}
-                              >
-                                {running ? "Running..." : "Manual PIN Search"}
-                              </Button>
-                                <Button 
-                                  onClick={async () => {
-                                    if (!state || !city || !category) {
-                                      toast.error("Please select State, District, and Category first!");
-                                      return;
-                                    }
-                                    try {
-                                      setRunning(true);
-                                      addLog("Starting Smart Deep Scrape via ADB...");
-                                      const targetLocParam = adbLocation.trim() ? `&target_location=${encodeURIComponent(adbLocation.trim())}` : '';
-                                      const res = await fetch(`${LOCAL_API}/adb/smart-scrape?state=${state}&district=${city}&main_category=${category}&scrolls=${maxEntries}${targetLocParam}`, { method: 'POST' });
-                                      const data = await res.json();
-                                      if (data.status === 'started') {
-                                        toast.success(data.message);
-                                        addLog(`[Smart Scrape] ${data.message}`);
-                                      } else {
-                                        throw new Error(data.detail || data.message || "Failed to start");
-                                      }
-                                    } catch (e: any) {
-                                      setRunning(false);
-                                      toast.error(e.message);
-                                      addLog(`[Smart Scrape] Error: ${e.message}`, false);
-                                    }
-                                  }} 
-                                  disabled={running}
-                                  className="w-full h-10 text-white font-medium shadow-brand text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700" 
-                                >
-                                  🚀 Deep Smart Scrape
-                                </Button>
-                              </div>
-                            </div>
-
-                            <div className="border-t pt-4 space-y-3">
-                              {/* Sub-section 2: Proxy Server & Traffic Routing */}
+                              {/* Sub-section 1: Proxy Server & Traffic Routing */}
                               <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                                 <Zap className="size-3.5 text-brand" />
-                                2. Proxy & Traffic Routing
+                                1. Proxy & Traffic Routing
                               </h4>
                               <p className="text-xs text-muted-foreground leading-relaxed">
                                 Enable intercept proxy to capture JustDial API payloads. If active, all your phone traffic will be routed to the cloud proxy automatically.
@@ -1568,6 +1580,13 @@ function Dashboard() {
                                         <Download className="size-3.5" />
                                       </a>
                                       <button 
+                                        onClick={() => ingestCompiledJson(file.filename)}
+                                        className="p-1.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 transition-colors"
+                                        title="Upload to Database"
+                                      >
+                                        <Database className="size-3.5" />
+                                      </button>
+                                      <button 
                                         onClick={() => deleteJsonFile(file.filename)}
                                         className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors" 
                                         title="Delete"
@@ -1593,19 +1612,6 @@ function Dashboard() {
                         </section>
                       )}
 
-                      {/* Single URL */}
-                      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Link2 className="size-4 text-brand" />
-                          <h3 className="text-base font-semibold">Single URL Scraper</h3>
-                        </div>
-                        <FormField label="JustDial URL">
-                          <input type="text" value={singleUrl} onChange={(e) => setSingleUrl(e.target.value)} placeholder="https://www.justdial.com/..." className="w-full h-10 rounded-lg px-3 text-sm font-mono bg-background ring-1 ring-border outline-none focus:ring-brand transition-all placeholder:text-muted-foreground" />
-                        </FormField>
-                        <Button onClick={scrapeUrl} className="w-full h-10 text-white font-medium shadow-brand" style={{ background: "var(--gradient-brand)" }}>
-                          <Link2 className="size-4 mr-2" />Scrape This URL
-                        </Button>
-                      </section>
                     </div>
                   </div>
 
@@ -1664,34 +1670,6 @@ function Dashboard() {
                           options={getSubcategoryOptions()}
                         />
                       </FormField>
-                      <FormField label="Engine">
-                        <StyledSelect
-                          value={
-                            engine === "api" ? "⚡ API (Chrome)" : 
-                            engine === "api_edge" ? "⚡ API (Edge)" : 
-                            engine === "selenium" ? "Chrome" : 
-                            engine === "edge" ? "Edge" : 
-                            engine === "playwright" ? "Playwright (Chrome)" : 
-                            engine === "playwright_edge" ? "Playwright (Edge)" : 
-                            engine === "emulator" ? "📱 Mobile" : 
-                            "Playwright (Chrome)"
-                          }
-                          onChange={(v) => {
-                            if (v.includes("Chrome)")) {
-                              if (v.includes("API")) setEngine("api");
-                              else setEngine("playwright");
-                            }
-                            else if (v.includes("Edge)")) {
-                              if (v.includes("API")) setEngine("api_edge");
-                              else setEngine("playwright_edge");
-                            }
-                            else if (v === "Chrome") setEngine("selenium");
-                            else if (v === "Edge") setEngine("edge");
-                            else if (v.includes("Mobile")) setEngine("emulator");
-                          }}
-                          options={["⚡ API (Chrome)", "⚡ API (Edge)", "Chrome", "Edge", "Playwright (Chrome)", "Playwright (Edge)", "📱 Mobile"]}
-                        />
-                      </FormField>
                       <FormField label="Max Entries">
                         <input
                           type="number" min={1} max={500} value={maxEntries}
@@ -1714,13 +1692,6 @@ function Dashboard() {
                         : <><Search className="size-3 mr-1.5" />Check Listings in {city || "..."}</>
                       }
                     </Button>
-                    {/* Fast Mode Checkbox */}
-                    <div className="flex items-center gap-1.5 mt-2">
-                      <Checkbox id="fastModeSm" checked={fastMode} onCheckedChange={(checked) => setFastMode(!!checked)} />
-                      <label htmlFor="fastModeSm" className="text-[10px] font-semibold text-muted-foreground cursor-pointer select-none">
-                        ⚡ Fast Mode (URLs only)
-                      </label>
-                    </div>
                   </section>
 
                   {/* Right column: Controls + Single URL + Activity Log */}
@@ -1771,7 +1742,7 @@ function Dashboard() {
                             1. Remote Emulator Search
                           </h4>
                           <div className="flex gap-2 items-end">
-                            <div className="flex-1">
+                            <div className="flex-1 space-y-2">
                               <FormField label="Target Location (PIN or Town)">
                                 <input 
                                   type="text" 
@@ -1779,6 +1750,15 @@ function Dashboard() {
                                   onChange={(e) => setAdbLocation(e.target.value)} 
                                   className="w-full h-8 rounded-lg px-2 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand" 
                                   placeholder="e.g. 671315" 
+                                />
+                              </FormField>
+                              <FormField label="Search Category (Optional override)">
+                                <input 
+                                  type="text" 
+                                  value={customCategory} 
+                                  onChange={(e) => setCustomCategory(e.target.value)} 
+                                  className="w-full h-8 rounded-lg px-2 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                                  placeholder="e.g. Wedding, Costumes On Rent" 
                                 />
                               </FormField>
                             </div>
@@ -1794,26 +1774,27 @@ function Dashboard() {
                             </Button>
                             <Button 
                               onClick={async () => {
-                                  if (!state || !city || !category) {
+                                  const activeCategory = customCategory.trim() || subcategory || category;
+                                  if (!state || !city || !activeCategory) {
                                     toast.error("Please select State, District, and Category first!");
                                     return;
                                   }
                                   try {
                                     setRunning(true);
-                                    addLog("Starting Smart Deep Scrape via ADB...");
+                                    addLog(true, "Starting Smart Deep Scrape via ADB...");
                                     const targetLocParam = adbLocation.trim() ? `&target_location=${encodeURIComponent(adbLocation.trim())}` : '';
-                                    const res = await fetch(`${LOCAL_API}/adb/smart-scrape?state=${state}&district=${city}&main_category=${category}&scrolls=${maxEntries}${targetLocParam}`, { method: 'POST' });
+                                    const res = await fetch(`${LOCAL_API}/adb/smart-scrape?state=${state}&district=${city}&main_category=${activeCategory}&scrolls=${maxEntries}${targetLocParam}`, { method: 'POST' });
                                     const data = await res.json();
                                     if (data.status === 'started') {
                                       toast.success(data.message);
-                                      addLog(`[Smart Scrape] ${data.message}`);
+                                      addLog(true, `[Smart Scrape] ${data.message}`);
                                     } else {
                                       throw new Error(data.detail || data.message || "Failed to start");
                                     }
                                   } catch (e: any) {
                                     setRunning(false);
                                     toast.error(e.message);
-                                    addLog(`[Smart Scrape] Error: ${e.message}`, false);
+                                    addLog(false, `[Smart Scrape] Error: ${e.message}`);
                                   }
                                 }}
                               disabled={running}
@@ -1932,12 +1913,21 @@ function Dashboard() {
                                       download
                                       target="_blank"
                                       className="p-1 rounded bg-brand/10 hover:bg-brand/20 text-brand transition-colors"
+                                      title="Download JSON"
                                     >
                                       <Download className="size-3" />
                                     </a>
                                     <button 
+                                      onClick={() => ingestCompiledJson(file.filename)}
+                                      className="p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 transition-colors"
+                                      title="Upload to Database"
+                                    >
+                                      <Database className="size-3" />
+                                    </button>
+                                    <button 
                                       onClick={() => deleteJsonFile(file.filename)}
                                       className="p-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"
+                                      title="Delete"
                                     >
                                       <Trash2 className="size-3" />
                                     </button>
@@ -1960,6 +1950,276 @@ function Dashboard() {
                       </section>
                     )}
 
+
+
+                    {/* Activity Log — modal trigger, grows to fill remaining space */}
+                    <button
+                      onClick={() => setLogModalOpen(true)}
+                      className="rounded-xl ring-1 ring-border bg-card shadow-elegant px-3 py-2 flex items-center gap-2 hover:bg-accent/30 transition-colors w-full flex-1"
+                    >
+                      <Activity className="size-3.5 text-brand shrink-0" />
+                      <span className="text-xs font-semibold">Activity Log</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{log.length} entries</span>
+                      {running && <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />}
+                      <span className="ml-auto text-[9px] text-muted-foreground uppercase tracking-widest">View →</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* ── WEB SCRAPER TAB ── */}
+            {activeTab === "web_scraper" && (
+              maximized ? (
+                /* ══ MAXIMIZED WEB SCRAPER LAYOUT ══ */
+                <>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {/* Location & Category */}
+                    <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="size-4 text-brand" />
+                        <h3 className="text-base font-semibold">Location & Category (Web Browser)</h3>
+                        {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
+                        {listingCount && !fetchingCount && (
+                          <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <FormField label="State / UT"><StyledSelectLg value={state} onChange={setState} options={STATES} /></FormField>
+                        <FormField label="District / City"><StyledSelectLg value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
+                        <FormField label="Main Category">
+                          <StyledSelectLg
+                            value={category}
+                            onChange={setCategory}
+                            options={CATEGORIES}
+                            counts={Object.fromEntries(categoryCounts.map((c) => [c.category, c.count]))}
+                          />
+                        </FormField>
+                        <FormField label="Subcategory">
+                          <StyledSelectLg
+                            value={subcategory}
+                            onChange={setSubcategory}
+                            options={getSubcategoryOptions()}
+                          />
+                        </FormField>
+                        <FormField label="Scraper Engine">
+                          <StyledSelectLg
+                            value={
+                              engine === "api" ? "⚡ API (Chrome)" : 
+                              engine === "api_edge" ? "⚡ API (Edge)" : 
+                              engine === "selenium" ? "Chrome" : 
+                              engine === "edge" ? "Edge" : 
+                              engine === "playwright" ? "Playwright (Chrome)" : 
+                              engine === "playwright_edge" ? "Playwright (Edge)" : 
+                              "Chrome"
+                            }
+                            onChange={(v) => {
+                              if (v.includes("Chrome)")) {
+                                if (v.includes("API")) setEngine("api");
+                                else setEngine("playwright");
+                              }
+                              else if (v.includes("Edge)")) {
+                                if (v.includes("API")) setEngine("api_edge");
+                                else setEngine("playwright_edge");
+                              }
+                              else if (v === "Chrome") setEngine("selenium");
+                              else if (v === "Edge") setEngine("edge");
+                            }}
+                            options={["⚡ API (Chrome)", "⚡ API (Edge)", "Chrome", "Edge", "Playwright (Chrome)", "Playwright (Edge)"]}
+                          />
+                        </FormField>
+                        <FormField label="Max Entries">
+                          <input
+                            type="number" min={1} max={500} value={maxEntries}
+                            onChange={(e) => setMaxEntries(Math.max(1, Number(e.target.value)))}
+                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
+                          />
+                        </FormField>
+                      </div>
+                      
+                      {/* Checkboxes & Action Buttons */}
+                      <div className="space-y-4 pt-2">
+                        <div className="flex items-center gap-2">
+                          <Checkbox id="fastModeWeb" checked={fastMode} onCheckedChange={(checked) => setFastMode(!!checked)} />
+                          <label htmlFor="fastModeWeb" className="text-xs font-semibold text-muted-foreground cursor-pointer select-none">
+                            ⚡ Fast Mode (Scrape list page URLs only, skip detail pages)
+                          </label>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-3 pt-2">
+                          <Button 
+                            onClick={startScraping} 
+                            disabled={running}
+                            className="h-10 text-white font-medium shadow-brand text-xs" 
+                            style={{ background: running ? undefined : "var(--gradient-brand)" }}
+                          >
+                            <Play className="size-4 mr-1.5" />{running ? "Running" : "Start Scraping"}
+                          </Button>
+                          <Button onClick={stopScraping} disabled={!running} variant="outline" className="h-10 text-xs">
+                            <Square className="size-4 mr-1.5" />Stop Scraping
+                          </Button>
+                          <Button
+                            onClick={checkListings}
+                            disabled={checkingListings || !city}
+                            variant="secondary"
+                            className="h-10 text-xs font-semibold"
+                          >
+                            {checkingListings ? <RefreshCw className="size-3.5 mr-1.5 animate-spin" /> : <Search className="size-3.5 mr-1.5" />}
+                            Check Listings
+                          </Button>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* Right column */}
+                    <div className="flex flex-col gap-5">
+
+                      {/* Single URL Scraper */}
+                      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Link2 className="size-4 text-brand" />
+                          <h3 className="text-base font-semibold">Single URL Scraper</h3>
+                        </div>
+                        <FormField label="JustDial URL">
+                          <input type="text" value={singleUrl} onChange={(e) => setSingleUrl(e.target.value)} placeholder="https://www.justdial.com/..." className="w-full h-10 rounded-lg px-3 text-sm font-mono bg-background ring-1 ring-border outline-none focus:ring-brand transition-all placeholder:text-muted-foreground" />
+                        </FormField>
+                        <Button onClick={scrapeUrl} className="w-full h-10 text-white font-medium shadow-brand" style={{ background: "var(--gradient-brand)" }}>
+                          <Link2 className="size-4 mr-2" />Scrape This URL
+                        </Button>
+                      </section>
+                    </div>
+                  </div>
+
+                  {/* Activity Log — modal trigger, full width */}
+                  <button
+                    onClick={() => setLogModalOpen(true)}
+                    className="w-full rounded-2xl ring-1 ring-border bg-card shadow-elegant px-5 py-3 flex items-center gap-3 hover:bg-accent/30 transition-colors"
+                  >
+                    <Activity className="size-4 text-brand shrink-0" />
+                    <span className="text-sm font-semibold">Activity Log</span>
+                    <span className="text-xs text-muted-foreground font-mono">{log.length} entries</span>
+                    {running && <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />}
+                    <span className="ml-auto text-[10px] text-muted-foreground uppercase tracking-widest">Click to view →</span>
+                  </button>
+                </>
+              ) : (
+                /* ══ DEFAULT COMPACT WEB SCRAPER LAYOUT ══ */
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 flex-1 min-h-0">
+                  {/* Location & Category */}
+                  <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant flex flex-col gap-2 flex-1 min-h-0">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="size-3.5 text-brand" />
+                      <h3 className="text-xs font-semibold tracking-tight">Location & Category</h3>
+                      {fetchingCount && <span className="text-[9px] text-muted-foreground animate-pulse">checking...</span>}
+                      {listingCount && !fetchingCount && (
+                        <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <FormField label="State / UT"><StyledSelect value={state} onChange={setState} options={STATES} /></FormField>
+                      <FormField label="District / City"><StyledSelect value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
+                      <FormField label="Main Category">
+                        <StyledSelect
+                          value={category}
+                          onChange={setCategory}
+                          options={CATEGORIES}
+                          counts={Object.fromEntries(categoryCounts.map((c) => [c.category, c.count]))}
+                        />
+                      </FormField>
+                      <FormField label="Subcategory">
+                        <StyledSelect
+                          value={subcategory}
+                          onChange={setSubcategory}
+                          options={getSubcategoryOptions()}
+                        />
+                      </FormField>
+                      <FormField label="Engine">
+                        <StyledSelect
+                          value={
+                            engine === "api" ? "⚡ API (Chrome)" : 
+                            engine === "api_edge" ? "⚡ API (Edge)" : 
+                            engine === "selenium" ? "Chrome" : 
+                            engine === "edge" ? "Edge" : 
+                            engine === "playwright" ? "Playwright (Chrome)" : 
+                            engine === "playwright_edge" ? "Playwright (Edge)" : 
+                            "Chrome"
+                          }
+                          onChange={(v) => {
+                            if (v.includes("Chrome)")) {
+                              if (v.includes("API")) setEngine("api");
+                              else setEngine("playwright");
+                            }
+                            else if (v.includes("Edge)")) {
+                              if (v.includes("API")) setEngine("api_edge");
+                              else setEngine("playwright_edge");
+                            }
+                            else if (v === "Chrome") setEngine("selenium");
+                            else if (v === "Edge") setEngine("edge");
+                          }}
+                          options={["⚡ API (Chrome)", "⚡ API (Edge)", "Chrome", "Edge", "Playwright (Chrome)", "Playwright (Edge)"]}
+                        />
+                      </FormField>
+                      <FormField label="Max Entries">
+                        <input
+                          type="number" min={1} max={500} value={maxEntries}
+                          onChange={(e) => setMaxEntries(Math.max(1, Number(e.target.value)))}
+                          className="w-full h-8 rounded-lg px-2 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
+                        />
+                      </FormField>
+                    </div>
+
+                    <Button
+                      onClick={checkListings}
+                      disabled={checkingListings || !city}
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-8 text-xs"
+                    >
+                      {checkingListings
+                        ? <><RefreshCw className="size-3 mr-1.5 animate-spin" />Checking...</>
+                        : <><Search className="size-3 mr-1.5" />Check Listings in {city || "..."}</>
+                      }
+                    </Button>
+                    
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <Checkbox id="fastModeWebSm" checked={fastMode} onCheckedChange={(checked) => setFastMode(!!checked)} />
+                      <label htmlFor="fastModeWebSm" className="text-[10px] font-semibold text-muted-foreground cursor-pointer select-none">
+                        ⚡ Fast Mode (URLs only)
+                      </label>
+                    </div>
+                  </section>
+
+                  {/* Right column */}
+                  <div className="flex flex-col gap-2 min-h-0">
+                    <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-semibold tracking-tight">Controls</h3>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground">Status:</span>
+                          <span className={cn("text-[10px] font-semibold", statusColor)}>{status}</span>
+                          {running && <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />}
+                        </div>
+                      </div>
+                      {running && (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-muted-foreground">Processing...</span>
+                            <span className="text-brand font-mono">{Math.round(progress)}%</span>
+                          </div>
+                          <Progress value={progress} className="h-1" />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button onClick={startScraping} disabled={running} size="sm" className="h-8 text-white text-xs font-medium shadow-brand" style={{ background: running ? undefined : "var(--gradient-brand)" }}>
+                          <Play className="size-3 mr-1" />{running ? "Running" : "Start"}
+                        </Button>
+                        <Button onClick={stopScraping} disabled={!running} variant="outline" size="sm" className="h-8 text-xs">
+                          <Square className="size-3 mr-1" />Stop
+                        </Button>
+                      </div>
+                    </section>
+
                     <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-2">
                       <div className="flex items-center gap-2">
                         <Link2 className="size-3.5 text-brand" />
@@ -1969,11 +2229,10 @@ function Dashboard() {
                         <input type="text" value={singleUrl} onChange={(e) => setSingleUrl(e.target.value)} placeholder="https://www.justdial.com/..." className="w-full h-7 rounded-lg px-2 text-[11px] font-mono bg-background ring-1 ring-border outline-none focus:ring-brand transition-all placeholder:text-muted-foreground" />
                       </FormField>
                       <Button onClick={scrapeUrl} size="sm" className="w-full h-8 text-white text-xs font-medium shadow-brand" style={{ background: "var(--gradient-brand)" }}>
-                        <Link2 className="size-3 mr-1" />Scrape This URL
+                        <Link2 className="size-3 mr-1" />Scrape URL
                       </Button>
                     </section>
 
-                    {/* Activity Log — modal trigger, grows to fill remaining space */}
                     <button
                       onClick={() => setLogModalOpen(true)}
                       className="rounded-xl ring-1 ring-border bg-card shadow-elegant px-3 py-2 flex items-center gap-2 hover:bg-accent/30 transition-colors w-full flex-1"
@@ -2009,6 +2268,29 @@ function Dashboard() {
                 </div>
               ) : (
                 <section className="rounded-xl ring-1 ring-border bg-card overflow-hidden shadow-elegant">
+                  <div className="px-4 py-3 border-b border-border bg-muted/20 flex flex-wrap gap-3 items-end">
+                    <div className="space-y-1 w-32">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">State</label>
+                      <select value={dbFilterState} onChange={(e) => { setDbFilterState(e.target.value); setDbFilterDistrict("All"); }} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                        <option value="All">All States</option>
+                        {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1 w-32">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">District</label>
+                      <select value={dbFilterDistrict} onChange={(e) => setDbFilterDistrict(e.target.value)} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                        <option value="All">All Districts</option>
+                        {(CITIES[dbFilterState] || []).map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1 w-32">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Category</label>
+                      <select value={dbFilterCategory} onChange={(e) => setDbFilterCategory(e.target.value)} className="w-full h-8 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-brand">
+                        <option value="All">All Categories</option>
+                        {Object.keys(SUBCATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
                   <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <h3 className="text-xs font-semibold">Scraped Results</h3>
@@ -2624,10 +2906,11 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function StyledSelect({ value, onChange, options }: { 
+function StyledSelect({ value, onChange, options, counts }: { 
   value: string; 
   onChange: (v: string) => void; 
   options: (string | { label: string; value: string; indent?: number; parent?: string; hasChildren?: boolean })[]; 
+  counts?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -2638,18 +2921,21 @@ function StyledSelect({ value, onChange, options }: {
         onClick={() => setOpen(true)}
         className="w-full h-8 rounded-lg px-2.5 text-xs bg-background ring-1 ring-border flex items-center justify-between gap-1 transition-all hover:ring-brand"
       >
-        <span className="truncate">{value || "Select…"}</span>
+        <span className="truncate">
+          {value ? (counts?.[value] ? `${value} (${counts[value]})` : value) : "Select…"}
+        </span>
         <ChevronDown className="size-3 text-muted-foreground shrink-0" />
       </button>
-      <SelectModal open={open} value={value} options={options} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />
+      <SelectModal open={open} value={value} options={options} counts={counts} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />
     </>
   );
 }
 
-function StyledSelectLg({ value, onChange, options }: { 
+function StyledSelectLg({ value, onChange, options, counts }: { 
   value: string; 
   onChange: (v: string) => void; 
   options: (string | { label: string; value: string; indent?: number; parent?: string; hasChildren?: boolean })[]; 
+  counts?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -2660,18 +2946,21 @@ function StyledSelectLg({ value, onChange, options }: {
         onClick={() => setOpen(true)}
         className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border flex items-center justify-between gap-2 transition-all hover:ring-brand"
       >
-        <span className="truncate">{value || "Select…"}</span>
+        <span className="truncate">
+          {value ? (counts?.[value] ? `${value} (${counts[value]})` : value) : "Select…"}
+        </span>
         <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
       </button>
-      <SelectModal open={open} value={value} options={options} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />
+      <SelectModal open={open} value={value} options={options} counts={counts} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />
     </>
   );
 }
 
-function SelectModal({ open, value, options, onSelect, onClose }: {
+function SelectModal({ open, value, options, counts, onSelect, onClose }: {
   open: boolean;
   value: string;
   options: (string | { label: string; value: string; indent?: number; parent?: string; hasChildren?: boolean })[];
+  counts?: Record<string, string>;
   onSelect: (v: string) => void;
   onClose: () => void;
 }) {
@@ -2786,7 +3075,12 @@ function SelectModal({ open, value, options, onSelect, onClose }: {
                   )}
                 >
                   <span className="truncate">{o.label}</span>
-                  {o.value === value && <span className="size-1.5 rounded-full bg-brand mr-4" />}
+                  {counts?.[o.value] && (
+                    <span className="text-[10px] font-mono opacity-60 mr-4 bg-muted px-1.5 py-0.5 rounded">
+                      {counts[o.value]}
+                    </span>
+                  )}
+                  {o.value === value && !counts?.[o.value] && <span className="size-1.5 rounded-full bg-brand mr-4" />}
                 </button>
               </div>
             );

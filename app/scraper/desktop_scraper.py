@@ -578,6 +578,20 @@ def scrape_and_upload():
         log("\n🏆 ALL DISTRICTS COMPLETED!")
 
 
+def check_stop_flag() -> bool:
+    """Check if user requested to stop scraping."""
+    import os
+    paths = [
+        "data/scrape_stop.flag",
+        "../../data/scrape_stop.flag",
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "scrape_stop.flag")
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return True
+    return False
+
+
 def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mode=False, start_page=1, browser_type="chrome"):
     base_url = f"https://www.justdial.com/{district.replace(' ', '-')}/{subcat.replace(' ', '-')}"
     if subcat == "All" or not subcat.strip():
@@ -615,6 +629,10 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
         
         page_num = start_page
         while scraped_count < max_count:
+            if check_stop_flag():
+                log("🛑 Scraper stopped by user request. Exiting.")
+                break
+
             current_url = resolved_base_url if page_num == 1 else f"{resolved_base_url}/page-{page_num}"
             log(f"📄 Fetching page {page_num}: {current_url}")
             try:
@@ -636,6 +654,9 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
 
             for url in page_urls:
                 if scraped_count >= max_count:
+                    break
+                if check_stop_flag():
+                    log("🛑 Scraper stopped by user request. Exiting.")
                     break
 
                 log("\n" + "-" * 50)
