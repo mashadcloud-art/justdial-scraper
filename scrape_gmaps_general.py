@@ -158,40 +158,50 @@ async def extract_gmaps_menu(page) -> list:
     return menu_items
 
 async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None):
-    search_query = f"{query} in {pincode} Kerala"
+    if pincode and pincode.strip():
+        search_query = f"{query} in {pincode} Kerala"
+    else:
+        search_query = f"{query} Kerala"
     print(f"\n[Search] Query: '{search_query}'")
     
     url = f"https://www.google.com/maps/search/{search_query.replace(' ', '+')}?hl=en"
-    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    await page.goto(url, wait_until="commit", timeout=60000)
     await page.wait_for_timeout(4000)
     
     panel_selector = "div[role='feed']"
     
-    # Scroll results panel to load all items
-    scroll_count = 0
-    while scroll_count < 8:
-        panel = await page.query_selector(panel_selector)
-        if not panel:
-            break
-        await page.evaluate('document.querySelector("div[role=\'feed\']").scrollBy(0, 1000)')
-        await page.wait_for_timeout(1000)
-        content = await page.content()
-        if "You've reached the end of the list" in content:
-            break
-        scroll_count += 1
+    # Check if page loaded a place page directly (i.e. name header exists and no search feed is present)
+    direct_name_el = await page.query_selector("h1.DUwDvf")
+    feed_exists = await page.query_selector(panel_selector)
+    if direct_name_el and not feed_exists:
+        print("  -> Direct place details page loaded. Processing single result...")
+        place_urls = [page.url]
+    else:
+        # Scroll results panel to load all items
+        scroll_count = 0
+        while scroll_count < 8:
+            panel = await page.query_selector(panel_selector)
+            if not panel:
+                break
+            await page.evaluate('document.querySelector("div[role=\'feed\']").scrollBy(0, 1000)')
+            await page.wait_for_timeout(1000)
+            content = await page.content()
+            if "You've reached the end of the list" in content:
+                break
+            scroll_count += 1
 
-    # Extract listing elements
-    feed_el = await page.query_selector(panel_selector)
-    if not feed_el:
-        print("  -> No results feed found for this pincode.")
-        return []
-        
-    listings = await feed_el.query_selector_all("a[href*='/maps/place/']")
-    place_urls = []
-    for link in listings:
-        href = await link.get_attribute("href")
-        if href and href not in place_urls:
-            place_urls.append(href)
+        # Extract listing elements
+        feed_el = await page.query_selector(panel_selector)
+        if not feed_el:
+            print("  -> No results feed found for this pincode.")
+            return []
+            
+        listings = await feed_el.query_selector_all("a[href*='/maps/place/']")
+        place_urls = []
+        for link in listings:
+            href = await link.get_attribute("href")
+            if href and href not in place_urls:
+                place_urls.append(href)
             
     print(f"  -> Discovered {len(place_urls)} places in feed.")
     
@@ -223,7 +233,11 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                     nav_url = place_url + '&hl=en'
             else:
                 nav_url = place_url + '?hl=en'
-            await page.goto(nav_url, wait_until="domcontentloaded", timeout=60000)
+                
+            # Skip page.goto if we are already loaded on the exact page
+            current_url = page.url
+            if current_url.split("?")[0].rstrip("/") != nav_url.split("?")[0].rstrip("/"):
+                await page.goto(nav_url, wait_until="commit", timeout=60000)
             
             # Wait for place details to fully render (name must appear in h1)
             try:
