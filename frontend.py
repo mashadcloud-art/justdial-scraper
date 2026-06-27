@@ -46,6 +46,33 @@ page = st.sidebar.radio("Go to", [
     "Module Shop"
 ])
 
+st.sidebar.divider()
+st.sidebar.subheader("Backend Services")
+
+backend_online = False
+try:
+    res = requests.get("http://localhost:8000/api/v1/stats", timeout=0.8)
+    if res.status_code == 200:
+        backend_online = True
+except Exception:
+    pass
+
+if backend_online:
+    st.sidebar.success("🟢 Local Backend: Active")
+else:
+    st.sidebar.error("🔴 Local Backend: Offline")
+    if st.sidebar.button("🚀 Start Local Backend"):
+        # Start FastAPI backend process in background
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+            stdout=open("backend_start.log", "w"),
+            stderr=subprocess.STDOUT,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        st.sidebar.info("Starting backend... Please wait 3 seconds.")
+        time.sleep(3)
+        st.rerun()
+
 # ==========================================
 # 2. HELPER FUNCTIONS
 # ==========================================
