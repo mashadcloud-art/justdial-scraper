@@ -425,8 +425,11 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 return _re.sub(r"=w\d+-h\d+.*$", "", url)
             
             def is_large_img(url):
-                """Reject tiny thumbnails (w32 / h32 / p-k-no patterns)."""
-                return 'w32-h32' not in url and 'p-k-no' not in url and 'w48-h48' not in url and 'w64-h64' not in url
+                """Reject tiny user avatars or icons."""
+                # Don't scrape user profile avatars (usually /a/ format in URL path)
+                if '/a/' in url and '=s' in url:
+                    return False
+                return 'w32-h32' not in url and 'w48-h48' not in url and 'w64-h64' not in url
             
             # GALLERY PHOTO EXTRACTION: Click into the photo gallery to get multiple images
             image_urls = []
