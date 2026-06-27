@@ -198,10 +198,11 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
     
     panel_selector = "div[role='feed']"
     
-    # Check if page loaded a place page directly (i.e. name header exists and no search feed is present)
+    # Check if page loaded a place page directly (i.e. name header exists or URL matches place details)
     direct_name_el = await page.query_selector("h1.DUwDvf")
     feed_exists = await page.query_selector(panel_selector)
-    if direct_name_el and not feed_exists:
+    is_direct_place_url = "/maps/place/" in page.url or "/place/" in page.url
+    if (direct_name_el or is_direct_place_url) and not feed_exists:
         print("  -> Direct place details page loaded. Processing single result...")
         place_urls = [page.url]
     else:
@@ -800,10 +801,18 @@ async def main():
     # Initialize Playwright browser
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="en-US"
-        )
+        
+        # Emulate Pixel 5 mobile device layout if category is Restaurants to get digital menu tabs
+        if args.category.lower() == "restaurants":
+            print("Emulating Pixel 5 Mobile Viewport for digital menu and photo extraction...")
+            device = p.devices['Pixel 5']
+            context = await browser.new_context(**device, locale="en-US")
+        else:
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="en-US"
+            )
+            
         page = await context.new_page()
         
         processed_urls = set()
