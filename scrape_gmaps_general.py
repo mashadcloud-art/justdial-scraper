@@ -420,9 +420,10 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             
             # Helper: deduplicate Google image URLs by stripping scale params
             def canonical_img_url(url):
-                """Strip =w...-h... scale params to get the base image identifier."""
+                """Strip =w... or =h... or =s... scale params to get the base image identifier."""
                 import re as _re
-                return _re.sub(r"=w\d+-h\d+.*$", "", url)
+                # Match =wXXXX, =hXXXX, =sXXXX parameters and strip everything after
+                return _re.sub(r"=(w\d+|h\d+|s\d+|w\d+-h\d+).*$", "", url)
             
             def is_large_img(url):
                 """Reject tiny user avatars or icons."""
