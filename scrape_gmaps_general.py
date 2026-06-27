@@ -460,15 +460,22 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                 # Scroll the gallery container, not the page
                                 await page.evaluate("""
                                     () => {
-                                        var container = document.querySelector('.X98S3d') 
-                                            || document.querySelector('[jsname="bnGXge"]')
-                                            || document.querySelector('.DkEaL')
-                                            || document.scrollingElement;
-                                        if (container) container.scrollTop += 800;
-                                        else window.scrollBy(0, 800);
+                                        // Dynamically find the scrollable gallery container
+                                        let divs = Array.from(document.querySelectorAll('div'));
+                                        let container = divs.find(d => {
+                                            let style = window.getComputedStyle(d);
+                                            return (style.overflowY === 'auto' || style.overflowY === 'scroll') 
+                                                && d.scrollHeight > d.clientHeight 
+                                                && d.querySelectorAll('img[src*="googleusercontent"]').length > 2;
+                                        });
+                                        if (container) {
+                                            container.scrollTop += 1000;
+                                        } else {
+                                            window.scrollBy(0, 1000);
+                                        }
                                     }
                                 """)
-                                await page.wait_for_timeout(600)
+                                await page.wait_for_timeout(800)
                             except Exception:
                                 break
                             # Check if new images loaded
@@ -490,12 +497,21 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                     for _ in range(5):
                                         await page.evaluate("""
                                             () => {
-                                                var c = document.querySelector('.X98S3d') || document.scrollingElement;
-                                                if (c) c.scrollTop += 800;
-                                                else window.scrollBy(0, 800);
+                                                let divs = Array.from(document.querySelectorAll('div'));
+                                                let c = divs.find(d => {
+                                                    let style = window.getComputedStyle(d);
+                                                    return (style.overflowY === 'auto' || style.overflowY === 'scroll') 
+                                                        && d.scrollHeight > d.clientHeight 
+                                                        && d.querySelectorAll('img[src*="googleusercontent"]').length > 2;
+                                                });
+                                                if (c) {
+                                                    c.scrollTop += 1000;
+                                                } else {
+                                                    window.scrollBy(0, 1000);
+                                                }
                                             }
                                         """)
-                                        await page.wait_for_timeout(400)
+                                        await page.wait_for_timeout(600)
                             except Exception:
                                 pass
 
