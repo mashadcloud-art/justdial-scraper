@@ -35,7 +35,7 @@ def _get_adb_exe():
 ADB_PATH = _get_adb_exe()
 
 def _detect_connected_device() -> str:
-    """Dynamically detect the first connected ADB device. Returns '-s <device>' or ''."""
+    """Dynamically detect the active ADB device based on config, or fallback to first connected."""
     try:
         out = subprocess.check_output(f'"{ADB_PATH}" devices', shell=True, text=True, stderr=subprocess.DEVNULL)
         devices = []
@@ -43,6 +43,16 @@ def _detect_connected_device() -> str:
             parts = line.strip().split()
             if len(parts) >= 2 and parts[1] == "device":
                 devices.append(parts[0])
+                
+        # First check active_device.txt
+        active_device_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "active_device.txt")
+        if os.path.exists(active_device_path):
+            with open(active_device_path, "r") as f:
+                target_device = f.read().strip()
+                if target_device and target_device in devices:
+                    return f"-s {target_device}"
+                    
+        # Fallback to first device
         if devices:
             return f"-s {devices[0]}"
     except Exception:
@@ -146,7 +156,7 @@ def tap_home_nav():
     # on a 900x1600 screen layout
     run_adb(f"{get_input_cmd()} tap 75 1563")
 
-def swipe_up(duration_ms=1000):
+def swipe_up(duration_ms=2000):
     """Swipe up to scroll down the page."""
     log("Swiping up...")
     run_adb(f"{get_input_cmd()} swipe 500 1500 500 300 {duration_ms}")
@@ -168,6 +178,50 @@ def check_stop_flag() -> bool:
         if os.path.exists(p):
             return True
     return False
+
+def find_element_center(resource_id_kw: str = None, text_kw: str = None, class_kw: str = None) -> tuple:
+    """
+    Dumps the active screen layout and returns (x, y) coordinates of the matching element.
+    Returns None if no matching element is found.
+    """
+    temp_xml_path = "/sdcard/temp_dynamic_dump.xml"
+    run_adb(f"uiautomator dump {temp_xml_path}")
+    
+    local_xml = os.path.join(os.path.dirname(__file__), "..", "..", "data", "temp_dynamic_dump.xml")
+    os.makedirs(os.path.dirname(local_xml), exist_ok=True)
+    
+    if not run_adb_pull(temp_xml_path, local_xml):
+        return None
+        
+    try:
+        tree = ET.parse(local_xml)
+        root = tree.getroot()
+        for node in root.iter():
+            rid = node.attrib.get("resource-id", "").strip().lower()
+            text = node.attrib.get("text", "").strip().lower()
+            cls = node.attrib.get("class", "").strip().lower()
+            
+            match = True
+            if resource_id_kw and resource_id_kw.lower() not in rid:
+                match = False
+            if text_kw and text_kw.lower() not in text:
+                match = False
+            if class_kw and class_kw.lower() not in cls:
+                match = False
+                
+            if match:
+                bounds_str = node.attrib.get("bounds", "")
+                if bounds_str:
+                    # Parse bounds string, e.g. "[450,170][900,280]"
+                    coords = bounds_str.replace("][", ",").replace("[", "").replace("]", "").split(",")
+                    x1, y1, x2, y2 = map(int, coords)
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+                    return cx, cy
+    except Exception as e:
+        log(f"Error parsing layout in find_element_center: {e}")
+        
+    return None
 
 def check_current_city() -> str:
     """Get the currently selected city from the search screen."""
@@ -200,9 +254,19 @@ def check_current_city() -> str:
 def select_city_on_screen(target_city: str) -> bool:
     """Select the target city on the screen dynamically."""
     log(f"Changing global city to: {target_city}")
-    # 1. Tap city selector (X=450, Y=62) on the search screen
-    log("Tapping city selector...")
-    tap(450, 62)
+    
+    # 1. Try to dynamically locate city selector on search screen
+    city_center = find_element_center(resource_id_kw="jd_detected_area_view")
+    if not city_center:
+        city_center = find_element_center(resource_id_kw="area")
+        
+    if city_center:
+        cx, cy = city_center
+        log(f"Dynamically tapping city selector at ({cx}, {cy})...")
+        tap(cx, cy)
+    else:
+        log("Tapping city selector (fallback)...")
+        tap(450, 62)
     human_delay(2.5, 3.5)
 
     # 2. Type target city name
@@ -277,6 +341,67 @@ def select_city_on_screen(target_city: str) -> bool:
     return True
 
 
+def check_screen_state_and_recover() -> bool:
+    """
+    Dumps the screen to check if we accidentally entered a restaurant's detail page
+    or if a Login popup ('Maybe Later', 'Skip') is blocking the screen.
+    Returns True if a recovery action was taken (so the caller can wait), False otherwise.
+    """
+    temp_xml_path = "/sdcard/temp_recovery_check.xml"
+    run_adb(f"uiautomator dump {temp_xml_path}")
+
+    local_xml = os.path.join(os.path.dirname(__file__), "..", "..", "data", "temp_recovery_check.xml")
+    os.makedirs(os.path.dirname(local_xml), exist_ok=True)
+
+    if not run_adb_pull(temp_xml_path, local_xml):
+        return False
+
+    try:
+        tree = ET.parse(local_xml)
+        root = tree.getroot()
+        parent_map = {c: p for p in root.iter() for c in p}
+        
+        all_texts = set()
+        for node in root.iter():
+            t = node.attrib.get("text", "").strip().lower()
+            c = node.attrib.get("content-desc", "").strip().lower()
+            if t: all_texts.add(t)
+            if c: all_texts.add(c)
+
+        # 1. Check for Login Popup or Permission Dialog ("Maybe Later", "Skip", "Not Now", "Allow")
+        login_keywords = {"maybe later", "skip", "not now", "later", "allow"}
+        for node in root.iter():
+            t = node.attrib.get("text", "").strip().lower()
+            c = node.attrib.get("content-desc", "").strip().lower()
+            text_to_check = t or c
+            if any(kw == text_to_check for kw in login_keywords):
+                log(f"Popup detected ('{text_to_check}'). Dismissing...")
+                bounds_str = node.attrib.get("bounds", "")
+                if bounds_str:
+                    coords = bounds_str.replace("][", ",").replace("[", "").replace("]", "").split(",")
+                    x1, y1, x2, y2 = map(int, coords)
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+                    tap(cx, cy)
+                    return True
+
+        # 2. Check for Restaurant Detail Page (Accidental tap)
+        # Unique keywords found on a business detail page but NOT on the search list
+        detail_page_keywords = {"write a review", "directions", "overview", "menu", "photos"}
+        # If we see multiple of these, we are definitely on a detail page
+        matches = sum(1 for kw in detail_page_keywords if any(kw in txt for txt in all_texts))
+        
+        if matches >= 1:
+            log(f"Accidental tap detected (found {matches} detail page keywords). Pressing BACK to recover...", ok=False)
+            go_back()
+            return True
+
+    except Exception as e:
+        log(f"Error checking screen state: {e}")
+        
+    return False
+
+
 def check_and_dismiss_refinement(category: str, max_retries: int = 3) -> bool:
     """
     Check if stuck on a subcategory/price refinement screen
@@ -309,7 +434,12 @@ def check_and_dismiss_refinement(category: str, max_retries: int = 3) -> bool:
             root = tree.getroot()
             parent_map = {c: p for p in root.iter() for c in p}
 
-            all_texts = {node.attrib.get("text", "").strip().lower() for node in root.iter()}
+            all_texts = set()
+            for node in root.iter():
+                t = node.attrib.get("text", "").strip().lower()
+                c = node.attrib.get("content-desc", "").strip().lower()
+                if t: all_texts.add(t)
+                if c: all_texts.add(c)
 
             # Not on a refinement screen — we're good
             if not any(kw in all_texts for kw in REFINEMENT_KEYWORDS):
@@ -325,15 +455,17 @@ def check_and_dismiss_refinement(category: str, max_retries: int = 3) -> bool:
 
             # Priority 1: exact match with the category name (e.g. "Fast Food")
             for node in root.iter():
-                if node.attrib.get("text", "").strip().lower() == category.lower():
+                t = node.attrib.get("text", "").strip().lower()
+                c = node.attrib.get("content-desc", "").strip().lower()
+                if t == category.lower() or c == category.lower():
                     target_node = node
-                    log(f"Found exact match: '{node.attrib.get('text')}'")
+                    log(f"Found exact match: '{node.attrib.get('text') or node.attrib.get('content-desc')}'")
                     break
 
             # Priority 2: first non-refinement non-nav TextView
             if target_node is None:
                 for node in root.iter():
-                    text = node.attrib.get("text", "").strip()
+                    text = node.attrib.get("text", "").strip() or node.attrib.get("content-desc", "").strip()
                     cls = node.attrib.get("class", "").strip()
                     if text and "TextView" in cls and text.lower() not in SKIP_TEXTS:
                         target_node = node
@@ -379,6 +511,88 @@ def check_and_dismiss_refinement(category: str, max_retries: int = 3) -> bool:
     return False
 
 
+def _is_on_detail_page() -> bool:
+    """
+    Quick check — are we on a business detail page instead of the results list?
+    Looks for detail-only elements like 'Write a Review', 'Directions', 'Call'.
+    """
+    temp_xml = "/sdcard/temp_detail_check.xml"
+    run_adb(f"uiautomator dump {temp_xml}")
+    local_xml = os.path.join(os.path.dirname(__file__), "..", "..", "data", "temp_detail_check.xml")
+    os.makedirs(os.path.dirname(local_xml), exist_ok=True)
+    if not run_adb_pull(temp_xml, local_xml):
+        return False
+    try:
+        tree = ET.parse(local_xml)
+        root = tree.getroot()
+        detail_keywords = {"write a review", "get directions", "call now", "share", "save"}
+        found = 0
+        for node in root.iter():
+            t = (node.attrib.get("text") or node.attrib.get("content-desc") or "").strip().lower()
+            if any(kw in t for kw in detail_keywords):
+                found += 1
+        return found >= 2
+    except Exception:
+        return False
+
+
+def _dismiss_any_popup():
+    """
+    Checks for and dismisses any blocking popups:
+    - 'Loading more data...' spinner
+    - 'Maybe Later' / 'Skip' / 'Not Now' login prompts
+    - Any dialog with a dismiss/cancel button
+    Taps outside the popup (top-right corner) if no button found.
+    """
+    temp_xml = "/sdcard/temp_popup_check.xml"
+    run_adb(f"uiautomator dump {temp_xml}")
+    local_xml = os.path.join(os.path.dirname(__file__), "..", "..", "data", "temp_popup_check.xml")
+    os.makedirs(os.path.dirname(local_xml), exist_ok=True)
+
+    if not run_adb_pull(temp_xml, local_xml):
+        return
+
+    DISMISS_TEXTS = {
+        "maybe later", "skip", "not now", "later", "close",
+        "cancel", "dismiss", "ok", "allow", "got it"
+    }
+    LOADING_TEXTS = {"loading more data", "loading", "please wait"}
+
+    try:
+        tree = ET.parse(local_xml)
+        root = tree.getroot()
+
+        all_texts = []
+        for node in root.iter():
+            t = (node.attrib.get("text") or "").strip().lower()
+            if t:
+                all_texts.append((t, node))
+
+        # Check for loading popup — tap outside it (top area is safe)
+        for t, node in all_texts:
+            if any(lw in t for lw in LOADING_TEXTS):
+                log(f"  Popup detected: '{t}' — tapping outside to dismiss...")
+                run_adb(f"{get_input_cmd()} tap 500 50")
+                time.sleep(1.5)
+                return
+
+        # Check for dismiss buttons
+        for t, node in all_texts:
+            if t in DISMISS_TEXTS:
+                bounds = node.attrib.get("bounds", "")
+                if bounds:
+                    coords = bounds.replace("][", ",").replace("[", "").replace("]", "").split(",")
+                    x1, y1, x2, y2 = map(int, coords)
+                    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                    log(f"  Dismissing popup button '{t}' at ({cx},{cy})")
+                    run_adb(f"{get_input_cmd()} tap {cx} {cy}")
+                    time.sleep(1.0)
+                    return
+
+    except Exception as e:
+        log(f"  Popup check error: {e}", ok=False)
+
+
 def automate_location_search(locations: List[str], category: str, scrolls: int, city: str = None):
     log(f"Starting targeted search for {len(locations)} locations.")
 
@@ -422,60 +636,93 @@ def automate_location_search(locations: List[str], category: str, scrolls: int, 
             human_delay(1.0, 1.5)
 
     # =========================================================
-    # STEP 3: Loop through all pincodes WITHOUT restarting the app
-    # We navigate via the bottom nav Home button — city is preserved!
+    # STEP 3: Loop through all areas — each search is a fresh intent
+    # Using am start with search query directly bypasses the search
+    # field entirely — no typing, no clearing, no field pollution.
     # =========================================================
     for i, loc in enumerate(locations):
         if check_stop_flag():
             log("🛑 Scraper stopped by user request. Exiting.", ok=False)
             return
 
-        log(f"=== [Location {i+1}/{len(locations)}] Searching: {category} in {loc} ===")
-
-        # Navigate to JustDial home screen via bottom nav Home button
-        # This does NOT kill the app — city setting stays intact
-        log("Tapping Home nav button to return to JustDial home...")
-        tap_home_nav()
-        human_delay(1.5, 2.5)
-
-        # Open search screen from home
-        tap(450, 170)
-        human_delay(2.0, 2.5)
-
-        # Focus the search input (it will be empty — fresh search from home)
-        tap(450, 150)
-        human_delay(0.8, 1.2)
-
-        # Type the search query
         search_query = f"{category} in {loc}"
+        log(f"=== [{i+1}/{len(locations)}] {search_query} ===")
+
+        # ── Perform UI based search to avoid "Direct Match" to a single listing ──
+        # We navigate to Home, tap the search bar, type the query, and select the first suggestion.
+        log("Ensuring we are on Home Screen...")
+        run_adb("am start -n com.justdial.search/.SplashScreenNewActivity")
+        human_delay(3.0, 4.0)
+
+        # Tap the main search bar on the home screen
+        search_bar_center = find_element_center(resource_id_kw="search_text")
+        if not search_bar_center:
+            search_bar_center = find_element_center(resource_id_kw="search")
+            
+        if search_bar_center:
+            cx, cy = search_bar_center
+            log(f"Dynamically tapping search bar at ({cx}, {cy})...")
+            tap(cx, cy)
+        else:
+            log("Tapping search bar (fallback)...")
+            tap(450, 170)
+        human_delay(2.5, 3.5)
+ 
+        # Type the search query
         type_text(search_query)
-        human_delay(1.5, 2.0)
+        human_delay(4.0, 5.0)
+ 
+        # Tap the first autocomplete suggestion
+        suggestion_center = find_element_center(resource_id_kw="suggest")
+        if not suggestion_center:
+            suggestion_center = find_element_center(resource_id_kw="area")
+            
+        if suggestion_center:
+            cx, cy = suggestion_center
+            log(f"Dynamically tapping autocomplete suggestion at ({cx}, {cy})...")
+            tap(cx, cy)
+        else:
+            log("Tapping autocomplete suggestion (fallback)...")
+            tap(450, 280)
+            human_delay(1.0, 1.5)
+            tap(450, 320)
+        human_delay(5.0, 7.0)
 
-        # Press Enter to submit search
-        if check_stop_flag():
-            log("🛑 Scraper stopped by user request. Exiting.", ok=False)
-            return
-        press_enter()
-        human_delay(5.0, 7.0)  # Wait for results / refinement screen to load
+        # Dismiss any popup (login prompt, loading spinner, etc.)
+        _dismiss_any_popup()
+        human_delay(1.0, 1.5)
 
-        # =====================================================
-        # Handle refinement screen (Fast Food > Inexpensive etc.)
-        # Taps "Fast Food" at the top to go to actual listings
-        # =====================================================
+        # Handle refinement screen if it appears
         check_and_dismiss_refinement(category)
 
-        # Scroll down to trigger API data capture
+        # ── Scroll the results page — DO NOT tap any listing ──
+        # Just swipe up repeatedly to load more results.
+        # MITM captures all API responses automatically in background.
         for s in range(1, scrolls + 1):
             if check_stop_flag():
                 log("🛑 Scraper stopped by user request. Exiting.", ok=False)
                 return
 
-            log(f"Scroll {s}/{scrolls} for '{search_query}'")
-            swipe_up(duration_ms=random.randint(600, 1000))
-            swipe_up(duration_ms=random.randint(600, 1000))
-            human_delay(1.2, 2.0)
+            log(f"  Scroll {s}/{scrolls}")
 
-    log("Location-based search automation complete!")
+            # Every 3 scrolls — check if we accidentally tapped a listing
+            # If so, go back immediately and continue scrolling
+            if s % 3 == 0:
+                if _is_on_detail_page():
+                    log("  ⚠️ Accidentally on detail page — pressing BACK", ok=False)
+                    go_back()
+                    human_delay(2.0, 3.0)
+
+            # Dismiss any popup mid-scroll
+            _dismiss_any_popup()
+
+            # Swipe from center — safe, won't trigger side drawer
+            swipe_up(duration_ms=random.randint(700, 1100))
+            human_delay(1.5, 2.5)
+
+        log(f"  ✅ Done scrolling '{search_query}'")
+
+    log("🏁 All locations complete!")
 
 
 if __name__ == "__main__":
