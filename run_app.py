@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 import uvicorn
 import sys
 import os
@@ -43,10 +43,10 @@ def start_vite():
             text=True
         )
         for line in proc.stdout:
-            m = re.search(r"Local:\s+(http://localhost:\d+)", line)
-            if m:
-                _vite_url = m.group(1)
-                break
+            if _vite_url is None:
+                m = re.search(r"Local:\s+(http://localhost:\d+)", line)
+                if m:
+                    _vite_url = m.group(1)
         proc.wait()
     except Exception:
         pass
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         time.sleep(0.3)
 
     time.sleep(1)
-    open_app(_vite_url or "http://localhost:8080")
+    open_app(_vite_url or "http://localhost:5173")
 
     # 5. Keep alive
     try:

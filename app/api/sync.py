@@ -66,6 +66,20 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ==========================================
 router = APIRouter()
 
+@router.post("/system/restart")
+def restart_server(background_tasks: BackgroundTasks):
+    import time
+    def do_restart():
+        time.sleep(1)
+        script_path = os.path.join(os.getcwd(), "Restart_App.bat")
+        if os.path.exists(script_path):
+            subprocess.Popen(["cmd.exe", "/c", "start", script_path], shell=True)
+            os._exit(0)
+    
+    background_tasks.add_task(do_restart)
+    return {"status": "success", "message": "Restarting server..."}
+
+
 def _get_adb_path():
     if os.name == "nt":
         bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
@@ -100,8 +114,57 @@ def _get_adb_devices(adb_path):
         return []
 
 # ==========================================
+# ADB DEVICE MANAGER
+# ==========================================
+from pydantic import BaseModel
+class DeviceSelection(BaseModel):
+    device_id: str
+
+@router.get("/adb/devices")
+def get_all_adb_devices():
+    adb_path = _get_adb_path()
+    # Try to connect standard emulator ports just in case
+    if os.name == "nt" and "HD-Adb.exe" not in adb_path:
+        for port in [5555, 5556, 5557, 5558, 5585, 5554]:
+            try: subprocess.run(f'"{adb_path}" connect 127.0.0.1:{port}', shell=True, timeout=2)
+            except: pass
+            
+    devices = _get_adb_devices(adb_path)
+    
+    result = []
+    for d in devices:
+        # Try to get device model for better UI
+        model = d
+        try:
+            out = subprocess.check_output(f'"{adb_path}" -s {d} shell getprop ro.product.model', shell=True, text=True, timeout=2)
+            if out.strip(): model = f"{out.strip()} ({d})"
+        except: pass
+        result.append({"id": d, "name": model})
+    return {"devices": result}
+
+@router.post("/adb/device/select")
+def select_adb_device(selection: DeviceSelection):
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    with open(config_path, "w") as f:
+        f.write(selection.device_id.strip())
+    return {"status": "success", "device_id": selection.device_id}
+
+@router.get("/adb/device/active")
+def get_active_adb_device():
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            device = f.read().strip()
+            if device:
+                return {"device_id": device}
+    return {"device_id": None}
+
+# ==========================================
 # 1. UPLOAD LISTING (Existing)
 # ==========================================
+import threading
+ingest_lock = threading.Lock()
+
 @router.post("/upload-listing", status_code=201)
 @router.post("/upload-restaurant", status_code=201, deprecated=True)
 def upload_listing(
@@ -177,41 +240,42 @@ def upload_listing(
             except Exception as e:
                 print(f"Location correction failed for {name}: {e}")
 
-        existing = db.query(models.Listing).filter(models.Listing.name == name).first()
-        
-        if existing:
-            listing = existing
-            # Only overwrite fields if new value is provided (never blank out existing data)
-            if phone: listing.phone = phone
-            if whatsapp: listing.whatsapp = whatsapp
-            if address: listing.address = address
-            if opening_hours: listing.opening_hours = opening_hours
-            if cleaned_cat: listing.category = cleaned_cat
-            if cleaned_sub: listing.subcategory = cleaned_sub
-            if normalized_cat: listing.normalized_category = normalized_cat
-            if district: listing.district = district
-            if cleaned_place: listing.place = cleaned_place
-            if cleaned_state: listing.state = cleaned_state
-            if latitude: listing.latitude = latitude
-            if longitude: listing.longitude = longitude
-            listing.scraped_at = datetime.datetime.utcnow()
-            # Only clear menus/amenities to re-enrich — NOT images (keep mobile API images)
-            listing.menu_items.clear()
-            listing.amenities.clear()
-            # Only clear images if new ones are being uploaded (don't wipe mobile API images)
-            if images or image_urls_json:
-                listing.images.clear()
-        else:
-            listing = models.Listing(
-                name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
-                jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, normalized_category=normalized_cat or "Other",
-                opening_hours=opening_hours or "",
-                district=district or "", place=cleaned_place or "", state=cleaned_state or "", latitude=latitude or "", longitude=longitude or ""
-            )
-            db.add(listing)
-            db.flush()
+        with ingest_lock:
+            existing = db.query(models.Listing).filter(models.Listing.name == name).first()
             
-        listing_id = listing.id
+            if existing:
+                listing = existing
+                # Only overwrite fields if new value is provided (never blank out existing data)
+                if phone: listing.phone = phone
+                if whatsapp: listing.whatsapp = whatsapp
+                if address: listing.address = address
+                if opening_hours: listing.opening_hours = opening_hours
+                if cleaned_cat: listing.category = cleaned_cat
+                if cleaned_sub: listing.subcategory = cleaned_sub
+                if normalized_cat: listing.normalized_category = normalized_cat
+                if district: listing.district = district
+                if cleaned_place: listing.place = cleaned_place
+                if cleaned_state: listing.state = cleaned_state
+                if latitude: listing.latitude = latitude
+                if longitude: listing.longitude = longitude
+                listing.scraped_at = datetime.datetime.utcnow()
+                # Only clear menus/amenities to re-enrich — NOT images (keep mobile API images)
+                listing.menu_items.clear()
+                listing.amenities.clear()
+                # Only clear images if new ones are being uploaded (don't wipe mobile API images)
+                if images or image_urls_json:
+                    listing.images.clear()
+            else:
+                listing = models.Listing(
+                    name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
+                    jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, normalized_category=normalized_cat or "Other",
+                    opening_hours=opening_hours or "",
+                    district=district or "", place=cleaned_place or "", state=cleaned_state or "", latitude=latitude or "", longitude=longitude or ""
+                )
+                db.add(listing)
+                db.flush()
+                
+            listing_id = listing.id
 
         # Add menu items (robustly)
         if menu_json:
@@ -303,6 +367,7 @@ def get_listings(
     search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    # Standard Listing Query Fallback
     query = db.query(models.Listing)
     
     if state:
@@ -373,7 +438,7 @@ def get_stats(db: Session = Depends(get_db)):
     total_images = db.query(models.ListingImage).count()
     total_menu_items = db.query(models.MenuItem).count()
     
-    # Category group counts
+    # Category group counts (schools are now merged into listings table)
     cat_counts = db.query(
         models.Listing.normalized_category, func.count(models.Listing.id)
     ).group_by(models.Listing.normalized_category).all()
@@ -568,6 +633,19 @@ def reset_scrape_lock():
     _clear_stop_flag()
     return {"status": "reset", "was_locked": was_locked, "message": "Scrape lock cleared."}
 
+@router.post("/scrape/clear-history")
+def clear_scrape_history():
+    """Clears the resume history of scraped pincodes."""
+    progress_file = os.path.join(settings.DATA_FOLDER, "scrape_progress.json")
+    if os.path.exists(progress_file):
+        try:
+            os.remove(progress_file)
+            log("🧹 Scrape progress history has been cleared.")
+            return {"status": "cleared", "message": "Scrape history cleared successfully."}
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to clear history: {str(e)}"}
+    return {"status": "ok", "message": "No history found to clear."}
+
 @router.post("/scrape")
 def trigger_scrape(
     state: str,
@@ -602,8 +680,27 @@ def trigger_scrape(
             scraping_in_progress = True
             cities = get_cities_to_scrape(state, district)
             log(f"Orchestrator: Will scrape {len(cities)} cities.")
+            
+            # Load progress history
+            progress_file = os.path.join(settings.DATA_FOLDER, "scrape_progress.json")
+            progress_history = {}
+            if os.path.exists(progress_file):
+                try:
+                    with open(progress_file, "r") as f:
+                        progress_history = json.load(f)
+                except Exception:
+                    pass
+            
+            progress_key = f"{main_cat}_{subcat}"
+            completed_cities = set(progress_history.get(progress_key, []))
+
             for city in cities:
                 if city == "All": continue
+                
+                if city in completed_cities:
+                    log(f"⏭️ Skipping {city}: already scraped for {progress_key}.")
+                    continue
+                
                 log(f"--- Starting scrape for {city} ---")
                 try:
                     if engine == "api":
@@ -618,11 +715,24 @@ def trigger_scrape(
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
                     elif engine == "emulator":
                         from app.scraper.adb_location_search import automate_location_search
+                        from app.scraper.constants import get_areas_for_district
                         search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
-                        log(f"ADB Emulator: Starting search for '{search_cat}' in '{city}' with {max_limit} scrolls.")
-                        automate_location_search([city], search_cat, scrolls=max_limit, city=city)
+                        # Auto-generate all major areas for the district
+                        areas = get_areas_for_district(city)
+                        log(f"ADB Emulator: '{search_cat}' in '{city}' — {len(areas)} areas to search: {', '.join(areas)}")
+                        automate_location_search(areas, search_cat, scrolls=max_limit, city=city)
                     else:
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                    
+                    # Mark as completed and save to history
+                    completed_cities.add(city)
+                    progress_history[progress_key] = list(completed_cities)
+                    try:
+                        with open(progress_file, "w") as f:
+                            json.dump(progress_history, f, indent=4)
+                    except Exception as e:
+                        log(f"Failed to save scrape progress: {e}", ok=False)
+                        
                 except Exception as inner_e:
                     log(f"Error scraping {city}: {inner_e}", ok=False)
         except Exception as e:
@@ -942,8 +1052,10 @@ def trigger_adb_search(
         global adb_search_in_progress
         try:
             adb_search_in_progress = True
-            log(f"ADB Bridge: Starting emulator search for category '{category}' in location '{location}' with {scrolls} scrolls.")
-            automate_location_search([location], category, scrolls, city=location)
+            from app.scraper.constants import get_areas_for_district
+            areas = get_areas_for_district(location)
+            log(f"ADB Bridge: '{category}' in '{location}' — {len(areas)} areas: {', '.join(areas)}")
+            automate_location_search(areas, category, scrolls, city=location)
             log("ADB Bridge: Completed search successfully.")
         except Exception as e:
             log(f"ADB Bridge: Search failed: {e}", ok=False)
@@ -972,7 +1084,18 @@ def get_adb_screenshot():
     
     adb_path = _get_adb_path()
     devices = _get_adb_devices(adb_path)
-    target = f"-s {devices[0]}" if devices else ""
+    target = ""
+    
+    # Check active_device.txt
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            saved_device = f.read().strip()
+            if saved_device and saved_device in devices:
+                target = f"-s {saved_device}"
+    
+    if not target and devices:
+        target = f"-s {devices[0]}"
         
     img_path = "/tmp/emulator_screen.png" if os.name != "nt" else "emulator_screen.png"
     
@@ -1281,6 +1404,41 @@ def api_proxy_status():
         phone_proxy = "Disconnected"
         
     return {"running": is_running, "phone_proxy": phone_proxy}
+
+_scroll_process = None
+
+@router.post("/adb/scroll/start")
+def api_start_scroll(interval: float = 3.0):
+    global _scroll_process
+    if _scroll_process and _scroll_process.poll() is None:
+        return {"status": "already_running", "message": "Auto-scroll is already running."}
+    
+    try:
+        import sys
+        _scroll_process = subprocess.Popen(
+            [sys.executable, "-u", "-m", "app.scraper.adb_controller", "--interval", str(interval)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        return {"status": "started", "message": "Auto-scroll started successfully."}
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to start auto-scroll: {e}"}
+
+@router.post("/adb/scroll/stop")
+def api_stop_scroll():
+    global _scroll_process
+    if _scroll_process and _scroll_process.poll() is None:
+        _scroll_process.terminate()
+        _scroll_process = None
+        return {"status": "stopped", "message": "Auto-scroll stopped successfully."}
+    return {"status": "not_running", "message": "Auto-scroll is not running."}
+
+@router.get("/adb/scroll/status")
+def api_scroll_status():
+    global _scroll_process
+    is_running = _scroll_process is not None and _scroll_process.poll() is None
+    return {"running": is_running}
 
 @router.get("/compiled-jsons")
 def list_compiled_jsons():

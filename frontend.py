@@ -11,12 +11,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 API_URL = "http://localhost:8000/api/v1"
 LOG_FILE = "scraper_logs.txt"
+PYTHON_EXE = sys.executable
+
 
 # Initialize session state
 if 'is_scraping' not in st.session_state:
     st.session_state.is_scraping = False
 if 'scraper_process' not in st.session_state:
     st.session_state.scraper_process = None
+if 'is_scrolling' not in st.session_state:
+    st.session_state.is_scrolling = False
+if 'scroll_process' not in st.session_state:
+    st.session_state.scroll_process = None
 
 # ==========================================
 # 1. PAGE SETUP
@@ -36,7 +42,8 @@ page = st.sidebar.radio("Go to", [
     "Dashboard",
     "Category Management",
     "Scraper Control",
-    "Database Management"
+    "Database Management",
+    "Module Shop"
 ])
 
 # ==========================================
@@ -137,7 +144,11 @@ if page == "Dashboard":
                     col1, col2 = st.columns([1, 2])
                     with col1:
                         if r.get('image_path'):
-                            st.image(f"http://localhost:8000/{r['image_path']}", width=300)
+                            img_path = r['image_path']
+                            if img_path.startswith("http://") or img_path.startswith("https://"):
+                                st.image(img_path, width=300)
+                            else:
+                                st.image(f"http://localhost:8000/{img_path}", width=300)
                     with col2:
                         st.subheader(r.get('name', 'Unknown'))
                         if r.get('phone'):
@@ -154,6 +165,16 @@ if page == "Dashboard":
                                 for item in r['menu_items'][:15]:
                                     veg_text = "Veg" if item.get('is_veg') else "Non-Veg"
                                     st.markdown(f"**{item.get('name', 'Unknown')}** - ₹{item.get('price', 'N/A')} ({veg_text})")
+                                    
+                        if r.get('images') and len(r['images']) > 1:
+                            with st.expander(f"🖼️ View Gallery ({len(r['images'])} photos)"):
+                                cols = st.columns(4)
+                                for idx, img_obj in enumerate(r['images']):
+                                    img_url = img_obj.get('path')
+                                    if img_url:
+                                        if not (img_url.startswith("http://") or img_url.startswith("https://")):
+                                            img_url = f"http://localhost:8000/{img_url}"
+                                        cols[idx % 4].image(img_url, use_container_width=True)
         else:
             st.info("No restaurants scraped yet! Go to 'Scraper Control' to start scraping.")
     except Exception as e:
@@ -262,7 +283,7 @@ elif page == "Scraper Control":
     st.divider()
     
     # Create tabs for different scraping modes
-    tab_city, tab_url = st.tabs(["🏙️ City/District-Wise Scraping", "🔗 Manual URL Scraping"])
+    tab_city, tab_url, tab_gmaps, tab_scroll = st.tabs(["🏙️ City/District-Wise Scraping", "🔗 Manual URL Scraping", "🗺️ Google Maps Scraper", "📱 Manual Auto-Scroll (ADB)"])
     
     # ------------------------------
     # Tab 1: City/District-Wise Scraping
@@ -303,13 +324,13 @@ scrape_city('{selected_city}', max_limit={max_limit})
             # Start process
             st.session_state.scraper_process = subprocess.Popen(
                 [
-                    r"C:\Users\PC\AppData\Local\Programs\Python\Python310\python.exe",
+                    PYTHON_EXE,
                     "-u",
                     "temp_runner.py"
                 ],
                 stdout=open(LOG_FILE, "w"),
                 stderr=subprocess.STDOUT,
-                cwd=r"c:\Users\PC\Documents\trae_projects\Scapre for thozil"
+                cwd=os.path.dirname(os.path.abspath(__file__))
             )
             st.rerun()
     
@@ -346,14 +367,116 @@ scrape_single_url('{manual_url}')
                 # Start process
                 st.session_state.scraper_process = subprocess.Popen(
                     [
-                        r"C:\Users\PC\AppData\Local\Programs\Python\Python310\python.exe",
+                        PYTHON_EXE,
                         "-u",
                         "temp_runner.py"
                     ],
                     stdout=open(LOG_FILE, "w"),
                     stderr=subprocess.STDOUT,
-                    cwd=r"c:\Users\PC\Documents\trae_projects\Scapre for thozil"
+                    cwd=os.path.dirname(os.path.abspath(__file__))
                 )
+                st.rerun()
+                
+    # ------------------------------
+    # Tab 3: Google Maps Scraper (Generic)
+    # ------------------------------
+    with tab_gmaps:
+        st.subheader("Google Maps Kerala Scraper")
+        st.markdown("Scrape any business category (e.g. Restaurants, Cafes, Hospitals) across pincodes in a Kerala district.")
+        
+        col_q, col_d = st.columns(2)
+        with col_q:
+            gmaps_query = st.text_input("Google Maps Query", value="restaurants", placeholder="e.g. restaurants, cafes, hotels, dentists")
+        with col_d:
+            gmaps_district = st.selectbox(
+                "Select District",
+                ["Kasaragod", "Kannur", "Wayanad", "Kozhikode", "Malappuram", "Palakkad", "Thrissur", "Ernakulam", "Idukki", "Kottayam", "Alappuzha", "Pathanamthitta", "Kollam", "Thiruvananthapuram"],
+                index=0
+            )
+            
+        col_cat, col_ncat = st.columns(2)
+        with col_cat:
+            gmaps_category = st.text_input("Category (DB classification)", value="Restaurants", placeholder="e.g. Restaurants, Cafes, Hospitals")
+        with col_ncat:
+            gmaps_normalized = st.selectbox(
+                "Normalized Category (DB parent)",
+                ["Food & Restaurants", "Health & Medical", "Education", "Accommodation", "Shopping & Retail", "Automotive", "Beauty & Spa", "Services", "Others"],
+                index=0
+            )
+            
+        col_lim, col_ph = st.columns(2)
+        with col_lim:
+            gmaps_limit_pins = st.number_input("Limit Pincodes (0 for all)", min_value=0, value=0, step=1)
+        with col_ph:
+            gmaps_max_photos = st.slider("Max Photos per Place", min_value=1, max_value=500, value=50)
+            
+        gmaps_live = st.toggle("Live Mode (Write to Supabase database)", value=False)
+        
+        st.divider()
+        
+        if st.button("🚀 Start Google Maps Scraper", type="primary", disabled=st.session_state.is_scraping, use_container_width=True, key="start_gmaps"):
+            clear_logs()
+            st.session_state.is_scraping = True
+            st.session_state.scraping_mode = "gmaps"
+            
+            # Build CLI arguments
+            args_list = [
+                PYTHON_EXE,
+                "-u",
+                "scrape_gmaps_general.py",
+                "--district", gmaps_district,
+                "--query", gmaps_query,
+                "--category", gmaps_category,
+                "--normalized-category", gmaps_normalized,
+                "--max-photos", str(gmaps_max_photos)
+            ]
+            if gmaps_live:
+                args_list.append("--live")
+            if gmaps_limit_pins > 0:
+                args_list.extend(["--limit-pins", str(gmaps_limit_pins)])
+                
+            # Start process
+            st.session_state.scraper_process = subprocess.Popen(
+                args_list,
+                stdout=open(LOG_FILE, "w"),
+                stderr=subprocess.STDOUT,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            st.rerun()
+
+    # ------------------------------
+    # Tab 4: Manual Auto-Scroll (ADB)
+    # ------------------------------
+    with tab_scroll:
+        st.subheader("Manual Auto-Scroll via ADB")
+        st.info("Use this if you navigated to a page on your Android device manually and just want the script to swipe up continuously to load more items.")
+        
+        scroll_interval = st.number_input("Seconds between swipes", min_value=0.5, max_value=10.0, value=3.0, step=0.5)
+        
+        col_start, col_stop = st.columns(2)
+        with col_start:
+            if st.button("▶️ Start Auto-Scrolling", type="primary", disabled=st.session_state.is_scrolling, use_container_width=True):
+                st.session_state.is_scrolling = True
+                st.session_state.scroll_process = subprocess.Popen(
+                    [
+                        PYTHON_EXE,
+                        "-u", "-m", "app.scraper.adb_controller",
+                        "--interval", str(scroll_interval)
+                    ],
+                    stdout=open(LOG_FILE, "a"),
+                    stderr=subprocess.STDOUT,
+                    cwd=os.path.dirname(os.path.abspath(__file__))
+                )
+                st.rerun()
+                
+        with col_stop:
+            if st.button("🛑 Stop Auto-Scrolling", type="secondary", disabled=not st.session_state.is_scrolling, use_container_width=True):
+                if st.session_state.scroll_process:
+                    st.session_state.scroll_process.terminate()
+                    st.session_state.scroll_process = None
+                st.session_state.is_scrolling = False
+                with open(LOG_FILE, "a") as f:
+                    f.write("\n🛑 Auto-scroll stopped manually from UI.\n")
                 st.rerun()
     
     # ------------------------------
@@ -374,6 +497,12 @@ scrape_single_url('{manual_url}')
             else:
                 st.session_state.is_scraping = False
                 status_text = "🟢 Ready"
+        elif st.session_state.is_scrolling and st.session_state.scroll_process:
+            if st.session_state.scroll_process.poll() is None:
+                status_text = "🔄 Auto-Scrolling in progress..."
+            else:
+                st.session_state.is_scrolling = False
+                status_text = "🟢 Ready"
         else:
             status_text = "🟢 Ready"
         st.metric("Status", status_text)
@@ -392,9 +521,11 @@ scrape_single_url('{manual_url}')
             st.info("Logs will appear here when scraping starts...")
     
     # Auto-refresh while scraping
-    if st.session_state.is_scraping:
-        if st.session_state.scraper_process and st.session_state.scraper_process.poll() is not None:
+    if st.session_state.is_scraping or st.session_state.is_scrolling:
+        if st.session_state.is_scraping and st.session_state.scraper_process and st.session_state.scraper_process.poll() is not None:
             st.session_state.is_scraping = False
+        if st.session_state.is_scrolling and st.session_state.scroll_process and st.session_state.scroll_process.poll() is not None:
+            st.session_state.is_scrolling = False
         time.sleep(1)
         st.rerun()
 
@@ -433,3 +564,49 @@ elif page == "Database Management":
                     st.success("Success! All data cleared!")
             except Exception as e:
                 st.error(f"Error: {e}")
+
+# ==========================================
+# PAGE 5: MODULE SHOP
+# ==========================================
+elif page == "Module Shop":
+    st.title("🧩 Module Shop")
+    st.markdown("Manage and run dynamic plugins without restarting the app.")
+    
+    try:
+        from core.plugin_manager import PluginManager
+        pm = PluginManager(os.path.dirname(os.path.abspath(__file__)))
+        plugins = pm.discover_plugins()
+        
+        if not plugins:
+            st.info("No plugins installed in the 'modules' folder.")
+        else:
+            for p in plugins:
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        st.subheader(p['name'])
+                        st.caption(f"v{p['version']} | Author: {p['author']}")
+                        st.write(p['description'])
+                    with col2:
+                        enabled = st.toggle("Enable Plugin", value=p['enabled'], key=f"tog_{p['id']}")
+                        if enabled != p['enabled']:
+                            pm.toggle_plugin(p['id'], enabled)
+                            st.rerun()
+                    with col3:
+                        if p['enabled']:
+                            if st.button("▶ Run Plugin", key=f"run_{p['id']}", use_container_width=True):
+                                with st.spinner(f"Running {p['name']}..."):
+                                    res = pm.run_plugin(p['id'], app_data={"context": "streamlit"})
+                                    if res['status'] == 'success':
+                                        st.success("Executed successfully!")
+                                        st.json(res['data'])
+                                    else:
+                                        st.error(res['message'])
+                                        if 'traceback' in res:
+                                            with st.expander("Show Traceback"):
+                                                st.code(res['traceback'])
+                        else:
+                            st.button("▶ Run Plugin", disabled=True, key=f"run_disabled_{p['id']}", use_container_width=True)
+                            
+    except Exception as e:
+        st.error(f"Failed to load Module Shop: {e}")
