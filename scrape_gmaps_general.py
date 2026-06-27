@@ -53,7 +53,7 @@ def expand_hospital_name(name: str) -> str:
     return name
 
 async def extract_gmaps_menu(page) -> list:
-    """Clicks the digital menu tab on the Google Maps place detail page and parses dish items."""
+    """Clicks the digital menu tab on the Google Maps place detail page and parses dish items across all tabs."""
     menu_items = []
     try:
         # Dismiss any mobile "Keep using web" overlay if present
@@ -63,7 +63,6 @@ async def extract_gmaps_menu(page) -> list:
             await page.wait_for_timeout(1000)
             
         # Try to click on the "Menu" tab / button inside the place details panel
-        # Target tabs or buttons containing "Menu"
         menu_tab = await page.query_selector("button:has-text('Menu')")
         if not menu_tab:
             menu_tab = await page.query_selector("div[role='tab']:has-text('Menu')")
@@ -77,76 +76,105 @@ async def extract_gmaps_menu(page) -> list:
             await menu_tab.click()
             await page.wait_for_timeout(3500) # Allow items to load
             
-            # Extract names and prices of dishes from the DOM using page evaluation
-            extracted = await page.evaluate("""
-                () => {
-                    let items = [];
-                    let elements = document.querySelectorAll('*');
-                    elements.forEach(el => {
-                        // Leaf nodes containing Rupee symbols represent dish prices
-                        if (el.innerText && el.innerText.includes('₹') && el.children.length === 0) {
-                            let parent = el.parentElement;
-                            // Move up to the container of the dish item row
-                            let container = parent;
-                            for (let i = 0; i < 3; i++) {
-                                if (container.parentElement) {
-                                    container = container.parentElement;
-                                }
-                            }
-                            if (container) {
-                                let lines = container.innerText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
-                                if (lines.length >= 2) {
-                                    // Check for veg dot indicator image or styling if present
-                                    let is_veg = true;
-                                    let imgs = container.querySelectorAll('img');
-                                    imgs.forEach(img => {
-                                        let src = (img.getAttribute('src') || '').toLowerCase();
-                                        let alt = (img.getAttribute('alt') || '').toLowerCase();
-                                        if (src.includes('non') || alt.includes('non') || src.includes('meat') || alt.includes('meat')) {
-                                            is_veg = false;
-                                        }
-                                    });
-                                    items.push({
-                                        lines: lines,
-                                        is_veg: is_veg
-                                    });
-                                }
-                            }
-                        }
-                    });
-                    
-                    // Deduplicate items based on name
-                    let unique = [];
-                    let seen = new Set();
-                    items.forEach(item => {
-                        let name = item.lines[0];
-                        if (name && !seen.has(name.toLowerCase())) {
-                            seen.add(name.toLowerCase());
-                            unique.push(item);
-                        }
-                    });
-                    return unique;
-                }
-            """)
+            # Find all category tab elements inside the menu panel
+            # E.g. "Burgers", "Fries", "Wraps"
+            # They usually are buttons/divs inside a tablist container
+            category_tab_selectors = [
+                "div[role='tablist'] div[role='tab']",
+                "div[role='tablist'] button",
+                "div[role='tablist'] span",
+                "button[aria-selected]",
+                "div[aria-selected]"
+            ]
             
-            # Process extracted lines into structured dictionary items
-            for item in extracted:
-                lines = item["lines"]
-                is_veg = item["is_veg"]
-                name = lines[0]
-                price = "0"
-                # Find price value from the lines array (e.g. "₹160.00")
-                for line in lines[1:]:
-                    if "₹" in line:
-                        price_match = re.search(r"₹\s*([\d,]+(\.\d+)?)", line)
-                        if price_match:
-                            price = price_match.group(1).replace(",", "")
-                            break
-                menu_items.append({
-                    "name": name,
-                    "price": price,
-                    "is_veg": is_veg
-                })
+            tabs_to_click = []
+            for sel in category_tab_selectors:
+                elements = await page.query_selector_all(sel)
+                if elements and len(elements) > 1:
+                    # Filter out "More" or parent tabs
+                    for el in elements:
+                        text = (await el.inner_text() or "").strip()
+                        if text and text.lower() != "more" and text.lower() != "menu":
+                            tabs_to_click.append(el)
+                    if tabs_to_click:
+                        break
+            
+            # Fallback: if no tabs detected, process once (single list view)
+            if not tabs_to_click:
+                print("     [INFO] No subcategory tabs found, scraping single list...")
+                tabs_to_click = [None]
+                
+            print(f"     [INFO] Discovered {len(tabs_to_click) if tabs_to_click[0] is not None else 0} menu category tabs to scrape.")
+            
+            for tab in tabs_to_click:
+                if tab:
+                    try:
+                        tab_text = (await tab.inner_text() or "").strip()
+                        print(f"     [INFO] Clicking menu category tab: '{tab_text}'")
+                        await tab.click()
+                        await page.wait_for_timeout(1800) # Wait for category content slide transition
+                    except Exception as e:
+                        print(f"     [WARN] Failed to click category tab: {e}")
+                        
+                # Extract names and prices of dishes currently visible in the DOM
+                extracted = await page.evaluate("""
+                    () => {
+                        let items = [];
+                        let elements = document.querySelectorAll('*');
+                        elements.forEach(el => {
+                            // Leaf nodes containing Rupee symbols represent dish prices
+                            if (el.innerText && el.innerText.includes('₹') && el.children.length === 0) {
+                                let parent = el.parentElement;
+                                let container = parent;
+                                for (let i = 0; i < 3; i++) {
+                                    if (container.parentElement) {
+                                        container = container.parentElement;
+                                    }
+                                }
+                                if (container) {
+                                    let lines = container.innerText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+                                    if (lines.length >= 2) {
+                                        let is_veg = true;
+                                        let imgs = container.querySelectorAll('img');
+                                        imgs.forEach(img => {
+                                            let src = (img.getAttribute('src') || '').toLowerCase();
+                                            let alt = (img.getAttribute('alt') || '').toLowerCase();
+                                            if (src.includes('non') || alt.includes('non') || src.includes('meat') || alt.includes('meat')) {
+                                                is_veg = false;
+                                            }
+                                        });
+                                        items.push({
+                                            lines: lines,
+                                            is_veg: is_veg
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                        return items;
+                    }
+                """)
+                
+                # Process extracted lines into structured dictionary items
+                for item in extracted:
+                    lines = item["lines"]
+                    is_veg = item["is_veg"]
+                    name = lines[0]
+                    price = "0"
+                    for line in lines[1:]:
+                        if "₹" in line:
+                            price_match = re.search(r"₹\s*([\d,]+(\.\d+)?)", line)
+                            if price_match:
+                                price = price_match.group(1).replace(",", "")
+                                break
+                    
+                    # Deduplicate in real-time
+                    if name and not any(m["name"].lower() == name.lower() for m in menu_items):
+                        menu_items.append({
+                            "name": name,
+                            "price": price,
+                            "is_veg": is_veg
+                        })
                 
             # Press Escape to close the menu panel
             await page.keyboard.press("Escape")
