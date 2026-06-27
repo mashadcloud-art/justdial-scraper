@@ -52,10 +52,32 @@ def expand_hospital_name(name: str) -> str:
         return "Women and Children Hospital " + name[prefix_len:]
     return name
 
-async def extract_gmaps_menu(page) -> list:
-    """Clicks the digital menu tab on the Google Maps place detail page and parses dish items across all tabs."""
+async def extract_gmaps_menu(browser, place_url: str) -> list:
+    """Clicks the digital menu tab on a temporary mobile browser context and parses dish items across all tabs."""
     menu_items = []
+    mobile_context = None
     try:
+        # Create a temporary mobile context in the background
+        mobile_context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+            viewport={"width": 393, "height": 851},
+            locale="en-US"
+        )
+        page = await mobile_context.new_page()
+        
+        # Navigate to place details page over mobile viewport
+        # Force English locale params
+        if '?' in place_url:
+            if 'hl=' in place_url:
+                nav_url = re.sub(r'hl=[a-z]{2}(-[A-Z]{2})?', 'hl=en', place_url)
+            else:
+                nav_url = place_url + '&hl=en'
+        else:
+            nav_url = place_url + '?hl=en'
+            
+        await page.goto(nav_url, wait_until="commit", timeout=60000)
+        await page.wait_for_timeout(4000)
+        
         # Dismiss any mobile "Keep using web" overlay if present
         keep_web_btn = await page.query_selector("button:has-text('Keep using web')")
         if keep_web_btn:
@@ -77,8 +99,6 @@ async def extract_gmaps_menu(page) -> list:
             await page.wait_for_timeout(3500) # Allow items to load
             
             # Find all category tab elements inside the menu panel
-            # E.g. "Burgers", "Fries", "Wraps"
-            # They usually are buttons/divs inside a tablist container
             category_tab_selectors = [
                 "div[role='tablist'] div[role='tab']",
                 "div[role='tablist'] button",
@@ -91,7 +111,6 @@ async def extract_gmaps_menu(page) -> list:
             for sel in category_tab_selectors:
                 elements = await page.query_selector_all(sel)
                 if elements and len(elements) > 1:
-                    # Filter out "More" or parent tabs
                     for el in elements:
                         text = (await el.inner_text() or "").strip()
                         if text and text.lower() != "more" and text.lower() != "menu":
@@ -101,20 +120,16 @@ async def extract_gmaps_menu(page) -> list:
             
             # Fallback: if no tabs detected, process once (single list view)
             if not tabs_to_click:
-                print("     [INFO] No subcategory tabs found, scraping single list...")
                 tabs_to_click = [None]
                 
-            print(f"     [INFO] Discovered {len(tabs_to_click) if tabs_to_click[0] is not None else 0} menu category tabs to scrape.")
-            
             for tab in tabs_to_click:
                 if tab:
                     try:
                         tab_text = (await tab.inner_text() or "").strip()
-                        print(f"     [INFO] Clicking menu category tab: '{tab_text}'")
                         await tab.click()
                         await page.wait_for_timeout(1800) # Wait for category content slide transition
-                    except Exception as e:
-                        print(f"     [WARN] Failed to click category tab: {e}")
+                    except Exception:
+                        pass
                         
                 # Extract names and prices of dishes currently visible in the DOM
                 extracted = await page.evaluate("""
@@ -122,7 +137,6 @@ async def extract_gmaps_menu(page) -> list:
                         let items = [];
                         let elements = document.querySelectorAll('*');
                         elements.forEach(el => {
-                            // Leaf nodes containing Rupee symbols represent dish prices
                             if (el.innerText && el.innerText.includes('₹') && el.children.length === 0) {
                                 let parent = el.parentElement;
                                 let container = parent;
@@ -168,24 +182,22 @@ async def extract_gmaps_menu(page) -> list:
                                 price = price_match.group(1).replace(",", "")
                                 break
                     
-                    # Deduplicate in real-time
                     if name and not any(m["name"].lower() == name.lower() for m in menu_items):
                         menu_items.append({
                             "name": name,
                             "price": price,
                             "is_veg": is_veg
                         })
-                
-            # Press Escape to close the menu panel
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(1000)
-            
+                        
     except Exception as e:
         print(f"     [WARN] Digital Menu extraction failed: {e}")
+    finally:
+        if mobile_context:
+            await mobile_context.close()
         
     return menu_items
 
-async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None):
+async def scrape_pincode_places(browser, page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None):
     if pincode and pincode.strip():
         search_query = f"{query} in {pincode} Kerala"
     else:
@@ -574,10 +586,10 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                 except Exception as e:
                     print(f"     [WARN] Hero image fallback failed: {e}")
             
-            # Extract digital menu if restaurant category
+            # Extract digital menu if restaurant category (runs in temporary background mobile context)
             menu_items = []
             if category_name.lower() == "restaurants":
-                menu_items = await extract_gmaps_menu(page)
+                menu_items = await extract_gmaps_menu(browser, place_url)
 
             results.append({
                 "name": name,
@@ -843,17 +855,12 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # Emulate Pixel 5 mobile device layout if category is Restaurants to get digital menu tabs
-        if args.category.lower() == "restaurants":
-            print("Emulating Pixel 5 Mobile Viewport for digital menu and photo extraction...")
-            device = p.devices['Pixel 5']
-            context = await browser.new_context(**device, locale="en-US")
-        else:
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale="en-US"
-            )
-            
+        # Always use Desktop Viewport to scrape listings, photos, names, and ratings reliably
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            locale="en-US",
+            viewport={"width": 1400, "height": 900}
+        )
         page = await context.new_page()
         
         processed_urls = set()
@@ -875,7 +882,7 @@ async def main():
                 print(f"\n>>> Skipped {skipped_count} already-scraped pincodes. Resuming from pincode {pin}...")
             
             print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} ---")
-            places = await scrape_pincode_places(page, pin, query=args.query, max_photos=args.max_photos, category_name=args.category, db=db, processed_urls=processed_urls)
+            places = await scrape_pincode_places(browser, page, pin, query=args.query, max_photos=args.max_photos, category_name=args.category, db=db, processed_urls=processed_urls)
             if places:
                 process_and_commit_places(
                     db, places, 
