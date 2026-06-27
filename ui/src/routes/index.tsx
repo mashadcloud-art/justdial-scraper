@@ -3137,21 +3137,45 @@ function SortTh({ label, k, sortKey, dir, onClick }: { label: string; k: keyof B
 
 function Lightbox({ data, onChange, onClose }: { data: { images: string[]; index: number; name: string }; onChange: (d: { images: string[]; index: number; name: string }) => void; onClose: () => void }) {
   const { images, index, name } = data;
+  
+  const handleImageError = (failedUrl: string) => {
+    const updatedImages = images.filter(img => img !== failedUrl);
+    if (updatedImages.length === 0) {
+      onClose();
+    } else {
+      const nextIndex = index >= updatedImages.length ? 0 : index;
+      onChange({ ...data, images: updatedImages, index: nextIndex });
+    }
+  };
+
   const prev = () => onChange({ ...data, index: (index - 1 + images.length) % images.length });
   const next = () => onChange({ ...data, index: (index + 1) % images.length });
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowLeft") prev(); if (e.key === "ArrowRight") next(); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, images.length]);
+
+  if (!images || images.length === 0) return null;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 animate-entrance">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 animate-entrance" onClick={onClose}>
       <button onClick={onClose} className="absolute top-5 right-5 size-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" aria-label="Close"><X className="size-5" /></button>
-      <button onClick={prev} className="absolute left-5 size-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" aria-label="Previous"><ChevronLeft className="size-6" /></button>
-      <button onClick={next} className="absolute right-5 size-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" aria-label="Next"><ChevronRight className="size-6" /></button>
-      <div className="max-w-5xl w-full max-h-full flex flex-col items-center gap-4">
-        <img src={images[index]} alt={`${name} ${index + 1}`} className="max-h-[75vh] w-auto rounded-xl shadow-2xl object-contain" />
+      {images.length > 1 && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); prev(); }} className="absolute left-5 size-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" aria-label="Previous"><ChevronLeft className="size-6" /></button>
+          <button onClick={(e) => { e.stopPropagation(); next(); }} className="absolute right-5 size-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" aria-label="Next"><ChevronRight className="size-6" /></button>
+        </>
+      )}
+      <div className="max-w-5xl w-full max-h-full flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
+        <img 
+          src={images[index]} 
+          alt={`${name} ${index + 1}`} 
+          onError={() => handleImageError(images[index])}
+          className="max-h-[75vh] w-auto rounded-xl shadow-2xl object-contain" 
+        />
         <div className="text-center text-white">
           <div className="text-sm font-medium">{name}</div>
           <div className="text-xs text-white/60 font-mono mt-1">{index + 1} / {images.length}</div>
