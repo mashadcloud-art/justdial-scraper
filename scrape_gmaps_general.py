@@ -230,18 +230,31 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                     place_urls.append(href)
         else:
             # Fallback for mobile view list:
-            # Scroll the page body directly to load items
-            print("  -> Desktop feed panel not found. Scrolling body for mobile list...")
+            # Scroll the correct scrollable list container rather than window body
+            print("  -> Desktop feed panel not found. Scrolling mobile list container...")
             scroll_count = 0
-            while scroll_count < 5:
-                await page.evaluate('window.scrollBy(0, 1000)')
+            while scroll_count < 6:
+                await page.evaluate("""
+                    () => {
+                        // Find scrollable container (often has class with overflow-y: auto)
+                        let divs = Array.from(document.querySelectorAll('div'));
+                        let scrollable = divs.find(d => {
+                            let style = window.getComputedStyle(d);
+                            return (style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight;
+                        });
+                        if (scrollable) {
+                            scrollable.scrollBy(0, 1000);
+                        } else {
+                            window.scrollBy(0, 1000);
+                        }
+                    }
+                """)
                 await page.wait_for_timeout(1500)
                 scroll_count += 1
                 
             # Grab all place detail URLs across the entire page DOM
             listings = await page.query_selector_all("a[href*='/maps/place/']")
             if not listings:
-                # Also fallback to general /place/ path urls
                 listings = await page.query_selector_all("a[href*='/place/']")
                 
             place_urls = []
@@ -251,8 +264,14 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                     place_urls.append(href)
                     
             if not place_urls:
-                print("  -> No results feed found for this pincode.")
-                return []
+                # Last resort fallback: check if we are redirected to a place card directly
+                direct_h1 = await page.query_selector("h1")
+                if direct_h1:
+                    print("  -> Fallback: Single place header found on mobile.")
+                    place_urls = [page.url]
+                else:
+                    print("  -> No results feed found for this pincode.")
+                    return []
             
     print(f"  -> Discovered {len(place_urls)} places in feed.")
     
