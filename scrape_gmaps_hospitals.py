@@ -143,153 +143,63 @@ async def scrape_pincode_hospitals(page, pincode: str, max_photos: int = 1):
             if web_el:
                 website = await web_el.get_attribute("href")
             
-            # Extract main cover image URL from Google Maps
-            image_url = ""
-            # Try multiple selectors for hero image
-            hero_selectors = [
-                "button[jsaction*='heroHeaderImage'] img",
-                "button.ao3bfe img",
-                "div[jsaction*='heroHeaderImage'] img",
-                "img[src*='googleusercontent']",
-                "div.m6QErb img"
-            ]
-            for sel in hero_selectors:
-                img_el = await page.query_selector(sel)
-                if img_el:
-                    src = await img_el.get_attribute("src")
-                    if src and "googleusercontent" in src:
-                        image_url = src
-                        break
-            
             # Helper: deduplicate Google image URLs by stripping scale params
             def canonical_img_url(url):
                 """Strip =w...-h... scale params to get the base image identifier."""
                 import re as _re
-                return _re.sub(r'=w\d+-h\d+.*$', '', url)
+                return _re.sub(r"=w\d+-h\d+.*$", "", url)
             
             def is_large_img(url):
                 """Reject tiny thumbnails (w32 / h32 / p-k-no patterns)."""
                 return 'w32-h32' not in url and 'p-k-no' not in url and 'w48-h48' not in url and 'w64-h64' not in url
             
-            # Extract additional gallery images if requested
+            # FAST PHOTO EXTRACTION: Get all images directly from the page, no gallery click!
             image_urls = []
             seen_canonical = set()
-            if image_url and is_large_img(image_url):
-                image_urls.append(image_url)
-                seen_canonical.add(canonical_img_url(image_url))
-            
-            # Try to get more photos with a timeout to prevent hanging
             try:
-                if max_photos > 1 or len(image_urls) == 0:
-                    # Try clicking the Photos tab button first, then hero image
-                    photos_tab_clicked = False
-                    # Try multiple selectors for photos button
-                    photo_button_selectors = [
-                        "button[jsaction*='pane.heroHeaderImage.photos']",
-                        "div.YkuOqf button",
-                        "button[aria-label*='photo']",
-                        "button[aria-label*='Photo']",
-                        "button[class*='gallery']",
-                        "button[jsaction*='photos']"
-                    ]
-                    click_target = None
-                    for sel in photo_button_selectors:
-                        btn = await page.query_selector(sel)
-                        if btn:
-                            click_target = btn
+                all_imgs = await page.evaluate("""
+                    () => Array.from(document.querySelectorAll('img'))
+                        .map(i => i.src)
+                        .filter(s => 
+                            s && 
+                            s.includes('googleusercontent') && 
+                            !s.includes('w32-h32') && 
+                            !s.includes('p-k-no') &&
+                            !s.includes('w48-h48') &&
+                            !s.includes('w64-h64')
+                        );
+                """)
+                for src in all_imgs[:max_photos]:
+                    base = canonical_img_url(src)
+                    if base not in seen_canonical:
+                        seen_canonical.add(base)
+                        image_urls.append(src)
+                        if len(image_urls) >= max_photos:
                             break
-                    
-                    if not click_target:
-                        # Try hero image button if no photo tab found
-                        img_btn_selectors = [
-                            "button[jsaction*='heroHeaderImage']",
-                            "button.ao3bfe",
-                            "div[jsaction*='heroHeaderImage']"
-                        ]
-                        for sel in img_btn_selectors:
-                            btn = await page.query_selector(sel)
-                            if btn:
-                                click_target = btn
-                                break
-                        
-                    if click_target:
-                        try:
-                            await click_target.click(timeout=10000)  # Shorter timeout for click
-                            await page.wait_for_timeout(3000)  # Wait less time for gallery
-                            photos_tab_clicked = True
-                            
-                            # Scroll gallery in a loop to load more images
-                            scroll_count = 0
-                            previous_count = len(image_urls)
-                            while len(image_urls) < max_photos and scroll_count < 100:
-                                # Scroll all gallery containers
-                                await page.evaluate("""
-                                    document.querySelectorAll('div.m6QErb, div[role=main], div[role=feed], div[class*="gallery"], div[class*="scroll"]').forEach(
-                                        function(el) { el.scrollBy(0, 3000); }
-                                    );
-                                """)
-                                await page.wait_for_timeout(1000)  # Wait less after each scroll
-                                
-                                # Collect large images only
-                                gallery_srcs = await page.evaluate("""
-                                    () => Array.from(document.querySelectorAll('img'))
-                                        .map(function(i) { return i.src; })
-                                        .filter(function(s) {
-                                            return s && s.includes('googleusercontent') &&
-                                                   s.indexOf('w32-h32') === -1 &&
-                                                   s.indexOf('p-k-no') === -1 &&
-                                                   s.indexOf('w48-h48') === -1 &&
-                                                   s.indexOf('w64-h64') === -1;
-                                        })
-                                """)
-                                added = 0
-                                for g_src in gallery_srcs:
-                                    base = canonical_img_url(g_src)
-                                    if base not in seen_canonical:
-                                        seen_canonical.add(base)
-                                        image_urls.append(g_src)
-                                        added += 1
-                                        if len(image_urls) >= max_photos:
-                                            break
-                                            
-                                if added == 0:
-                                    # No new images loaded, stop scrolling
-                                    break
-                                previous_count = len(image_urls)
-                                scroll_count += 1
-                        except Exception as e:
-                            print(f"     [WARN] Gallery scraping failed: {e}")
             except Exception as e:
-                print(f"     [WARN] Photo extraction failed: {e}")
+                print(f"     [WARN] Fast photo extraction failed: {e}")
             
-            # If we still have no images, try extracting from page without clicking
+            # Fallback: try getting hero image if we have none
+            image_url = image_urls[0] if image_urls else ""
             if len(image_urls) == 0:
                 try:
-                    all_imgs = await page.evaluate("""
-                        () => Array.from(document.querySelectorAll('img'))
-                            .map(i => i.src)
-                            .filter(s => 
-                                s && 
-                                s.includes('googleusercontent') && 
-                                !s.includes('w32-h32') && 
-                                !s.includes('p-k-no') &&
-                                !s.includes('w48-h48') &&
-                                !s.includes('w64-h64')
-                            );
-                    """)
-                    for src in all_imgs[:max_photos]:
-                        base = canonical_img_url(src)
-                        if base not in seen_canonical:
-                            seen_canonical.add(base)
-                            image_urls.append(src)
-                            if len(image_urls) >= max_photos:
+                    hero_selectors = [
+                        "button[jsaction*='heroHeaderImage'] img",
+                        "button.ao3bfe img",
+                        "div[jsaction*='heroHeaderImage'] img",
+                        "img[src*='googleusercontent']",
+                        "div.m6QErb img"
+                    ]
+                    for sel in hero_selectors:
+                        img_el = await page.query_selector(sel)
+                        if img_el:
+                            src = await img_el.get_attribute("src")
+                            if src and "googleusercontent" in src and is_large_img(src):
+                                image_urls.append(src)
+                                image_url = src
                                 break
                 except Exception as e:
-                    print(f"     [WARN] Fallback image extraction failed: {e}")
-                    
-            # Ensure we have at least one image in image_urls
-            if len(image_urls) == 0 and image_url and is_large_img(image_url):
-                image_urls.append(image_url)
+                    print(f"     [WARN] Hero image fallback failed: {e}")
             
             results.append({
                 "name": name,
@@ -481,7 +391,7 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             locale="en-US"
         )
         page = await context.new_page()
