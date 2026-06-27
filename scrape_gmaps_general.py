@@ -52,6 +52,111 @@ def expand_hospital_name(name: str) -> str:
         return "Women and Children Hospital " + name[prefix_len:]
     return name
 
+async def extract_gmaps_menu(page) -> list:
+    """Clicks the digital menu tab on the Google Maps place detail page and parses dish items."""
+    menu_items = []
+    try:
+        # Dismiss any mobile "Keep using web" overlay if present
+        keep_web_btn = await page.query_selector("button:has-text('Keep using web')")
+        if keep_web_btn:
+            await keep_web_btn.click()
+            await page.wait_for_timeout(1000)
+            
+        # Try to click on the "Menu" tab / button inside the place details panel
+        # Target tabs or buttons containing "Menu"
+        menu_tab = await page.query_selector("button:has-text('Menu')")
+        if not menu_tab:
+            menu_tab = await page.query_selector("div[role='tab']:has-text('Menu')")
+        if not menu_tab:
+            menu_tab = await page.query_selector("span:has-text('Menu')")
+            
+        if menu_tab:
+            # Scroll to view and click it
+            await menu_tab.scroll_into_view_if_needed()
+            await page.wait_for_timeout(500)
+            await menu_tab.click()
+            await page.wait_for_timeout(3500) # Allow items to load
+            
+            # Extract names and prices of dishes from the DOM using page evaluation
+            extracted = await page.evaluate("""
+                () => {
+                    let items = [];
+                    let elements = document.querySelectorAll('*');
+                    elements.forEach(el => {
+                        // Leaf nodes containing Rupee symbols represent dish prices
+                        if (el.innerText && el.innerText.includes('₹') && el.children.length === 0) {
+                            let parent = el.parentElement;
+                            // Move up to the container of the dish item row
+                            let container = parent;
+                            for (let i = 0; i < 3; i++) {
+                                if (container.parentElement) {
+                                    container = container.parentElement;
+                                }
+                            }
+                            if (container) {
+                                let lines = container.innerText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+                                if (lines.length >= 2) {
+                                    // Check for veg dot indicator image or styling if present
+                                    let is_veg = true;
+                                    let imgs = container.querySelectorAll('img');
+                                    imgs.forEach(img => {
+                                        let src = (img.getAttribute('src') || '').toLowerCase();
+                                        let alt = (img.getAttribute('alt') || '').toLowerCase();
+                                        if (src.includes('non') || alt.includes('non') || src.includes('meat') || alt.includes('meat')) {
+                                            is_veg = false;
+                                        }
+                                    });
+                                    items.push({
+                                        lines: lines,
+                                        is_veg: is_veg
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Deduplicate items based on name
+                    let unique = [];
+                    let seen = new Set();
+                    items.forEach(item => {
+                        let name = item.lines[0];
+                        if (name && !seen.has(name.toLowerCase())) {
+                            seen.add(name.toLowerCase());
+                            unique.push(item);
+                        }
+                    });
+                    return unique;
+                }
+            """)
+            
+            # Process extracted lines into structured dictionary items
+            for item in extracted:
+                lines = item["lines"]
+                is_veg = item["is_veg"]
+                name = lines[0]
+                price = "0"
+                # Find price value from the lines array (e.g. "₹160.00")
+                for line in lines[1:]:
+                    if "₹" in line:
+                        price_match = re.search(r"₹\s*([\d,]+(\.\d+)?)", line)
+                        if price_match:
+                            price = price_match.group(1).replace(",", "")
+                            break
+                menu_items.append({
+                    "name": name,
+                    "price": price,
+                    "is_veg": is_veg
+                })
+                
+            # Press Escape to close the menu panel
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1000)
+            
+    except Exception as e:
+        print(f"     [WARN] Digital Menu extraction failed: {e}")
+        
+    return menu_items
+
 async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None):
     search_query = f"{query} in {pincode} Kerala"
     print(f"\n[Search] Query: '{search_query}'")
@@ -227,10 +332,87 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                 """Reject tiny thumbnails (w32 / h32 / p-k-no patterns)."""
                 return 'w32-h32' not in url and 'p-k-no' not in url and 'w48-h48' not in url and 'w64-h64' not in url
             
-            # FAST PHOTO EXTRACTION: Get all images directly from the page, no gallery click!
+            # GALLERY PHOTO EXTRACTION: Click into the photo gallery to get multiple images
             image_urls = []
             seen_canonical = set()
             try:
+                # First try to click the "All photos" / hero image button to open gallery
+                if max_photos > 1:
+                    gallery_opened = False
+                    gallery_selectors = [
+                        "button[jsaction*='heroHeaderImage']",
+                        "div[jsaction*='heroHeaderImage']",
+                        "button.aoRNLd",
+                        "div.RZ66Rb",
+                    ]
+                    for sel in gallery_selectors:
+                        try:
+                            btn = await page.query_selector(sel)
+                            if btn:
+                                await btn.click()
+                                await page.wait_for_timeout(2500)
+                                gallery_opened = True
+                                break
+                        except Exception:
+                            pass
+
+                    if gallery_opened:
+                        # Scroll the gallery aggressively to load ALL lazy images
+                        prev_count = 0
+                        for scroll_round in range(15):
+                            try:
+                                # Scroll the gallery container, not the page
+                                await page.evaluate("""
+                                    () => {
+                                        var container = document.querySelector('.X98S3d') 
+                                            || document.querySelector('[jsname="bnGXge"]')
+                                            || document.querySelector('.DkEaL')
+                                            || document.scrollingElement;
+                                        if (container) container.scrollTop += 800;
+                                        else window.scrollBy(0, 800);
+                                    }
+                                """)
+                                await page.wait_for_timeout(600)
+                            except Exception:
+                                break
+                            # Check if new images loaded
+                            cur_count = await page.evaluate("""
+                                () => document.querySelectorAll('img[src*="googleusercontent"]').length
+                            """)
+                            if cur_count == prev_count and scroll_round > 3:
+                                break  # No more images loading
+                            prev_count = cur_count
+
+                        # Also try clicking "Menu" and "Food & drink" tabs for extra images
+                        for tab_label in ["Menu", "Food"]:
+                            try:
+                                tab = await page.query_selector(f'div[aria-label*="{tab_label}"]')
+                                if tab:
+                                    await tab.click()
+                                    await page.wait_for_timeout(1500)
+                                    # Scroll this tab too
+                                    for _ in range(5):
+                                        await page.evaluate("""
+                                            () => {
+                                                var c = document.querySelector('.X98S3d') || document.scrollingElement;
+                                                if (c) c.scrollTop += 800;
+                                                else window.scrollBy(0, 800);
+                                            }
+                                        """)
+                                        await page.wait_for_timeout(400)
+                            except Exception:
+                                pass
+
+                        # Click back to "All" tab
+                        try:
+                            all_tab = await page.query_selector('div[aria-label*="All"]')
+                            if all_tab:
+                                await all_tab.click()
+                                await page.wait_for_timeout(500)
+                        except Exception:
+                            pass
+
+                # Now grab all googleusercontent images from the page
                 all_imgs = await page.evaluate("""
                     () => Array.from(document.querySelectorAll('img'))
                         .map(i => i.src)
@@ -240,18 +422,51 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                             !s.includes('w32-h32') && 
                             !s.includes('p-k-no') &&
                             !s.includes('w48-h48') &&
-                            !s.includes('w64-h64')
+                            !s.includes('w64-h64') &&
+                            !s.includes('w20-h20') &&
+                            !s.includes('w34-h34') &&
+                            !s.includes('w200-h200')
                         );
                 """)
-                for src in all_imgs[:max_photos]:
+
+                # Also try background-image style elements (gallery thumbnails)
+                try:
+                    bg_imgs = await page.evaluate("""
+                        () => {
+                            var results = [];
+                            var elements = document.querySelectorAll('[style*="googleusercontent"]');
+                            elements.forEach(function(el) {
+                                var style = el.getAttribute('style') || '';
+                                var match = style.match(/url\\("?(https?:\\/\\/[^"')]+googleusercontent[^"')]+)"?\\)/);
+                                if (match) results.push(match[1]);
+                            });
+                            return results;
+                        }
+                    """)
+                    all_imgs = all_imgs + bg_imgs
+                except Exception:
+                    pass
+
+                for src in all_imgs:
+                    if len(image_urls) >= max_photos:
+                        break
                     base = canonical_img_url(src)
-                    if base not in seen_canonical:
+                    if base not in seen_canonical and is_large_img(src):
                         seen_canonical.add(base)
-                        image_urls.append(src)
-                        if len(image_urls) >= max_photos:
-                            break
+                        # Force large resolution — strip thumbnail params and add large size
+                        large_url = base + "=w1200-h900"
+                        image_urls.append(large_url)
+
+                # If gallery was opened, go back to place detail page
+                if max_photos > 1 and len(image_urls) > 0:
+                    try:
+                        await page.go_back(wait_until="domcontentloaded", timeout=10000)
+                        await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
             except Exception as e:
-                print(f"     [WARN] Fast photo extraction failed: {e}")
+                print(f"     [WARN] Gallery photo extraction failed: {e}")
             
             # Fallback: try getting hero image if we have none
             image_url = image_urls[0] if image_urls else ""
@@ -275,6 +490,11 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                 except Exception as e:
                     print(f"     [WARN] Hero image fallback failed: {e}")
             
+            # Extract digital menu if restaurant category
+            menu_items = []
+            if category_name.lower() == "restaurants":
+                menu_items = await extract_gmaps_menu(page)
+
             results.append({
                 "name": name,
                 "address": address,
@@ -284,6 +504,7 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
                 "service_attrs": service_attrs,
                 "image_url": image_url,
                 "image_urls": image_urls,
+                "menu_items": menu_items,
                 "category": category_name,
                 "subcategory": subcategory,
                 "latitude": latitude,
@@ -374,6 +595,18 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
                             category="general",
                             is_primary=(idx == 0)
                         ))
+            
+            # Update menu items if existing listing has no menu items
+            if h.get("menu_items") and live:
+                has_menu = db.query(models.MenuItem).filter(models.MenuItem.listing_id == existing.id).first()
+                if not has_menu:
+                    for m in h["menu_items"]:
+                        db.add(models.MenuItem(
+                            listing_id=existing.id,
+                            name=m["name"],
+                            price=m["price"],
+                            is_veg=m["is_veg"]
+                        ))
         else:
             # Create new listing
             if live:
@@ -425,6 +658,16 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
                             image_path=img_url,
                             category="general",
                             is_primary=(idx == 0)
+                        ))
+                        
+                # Add menu items to menu_items
+                if h.get("menu_items"):
+                    for m in h["menu_items"]:
+                        db.add(models.MenuItem(
+                            listing_id=new_listing.id,
+                            name=m["name"],
+                            price=m["price"],
+                            is_veg=m["is_veg"]
                         ))
             inserted_count += 1
 
