@@ -206,31 +206,53 @@ async def scrape_pincode_places(page, pincode: str, query: str, max_photos: int 
         print("  -> Direct place details page loaded. Processing single result...")
         place_urls = [page.url]
     else:
-        # Scroll results panel to load all items
-        scroll_count = 0
-        while scroll_count < 8:
-            panel = await page.query_selector(panel_selector)
-            if not panel:
-                break
-            await page.evaluate('document.querySelector("div[role=\'feed\']").scrollBy(0, 1000)')
-            await page.wait_for_timeout(1000)
-            content = await page.content()
-            if "You've reached the end of the list" in content:
-                break
-            scroll_count += 1
+        # Check if we have feed container (desktop view)
+        if feed_exists:
+            # Scroll results panel to load all items (desktop)
+            scroll_count = 0
+            while scroll_count < 8:
+                panel = await page.query_selector(panel_selector)
+                if not panel:
+                    break
+                await page.evaluate('document.querySelector("div[role=\'feed\']").scrollBy(0, 1000)')
+                await page.wait_for_timeout(1000)
+                content = await page.content()
+                if "You've reached the end of the list" in content:
+                    break
+                scroll_count += 1
 
-        # Extract listing elements
-        feed_el = await page.query_selector(panel_selector)
-        if not feed_el:
-            print("  -> No results feed found for this pincode.")
-            return []
-            
-        listings = await feed_el.query_selector_all("a[href*='/maps/place/']")
-        place_urls = []
-        for link in listings:
-            href = await link.get_attribute("href")
-            if href and href not in place_urls:
-                place_urls.append(href)
+            feed_el = await page.query_selector(panel_selector)
+            listings = await feed_el.query_selector_all("a[href*='/maps/place/']")
+            place_urls = []
+            for link in listings:
+                href = await link.get_attribute("href")
+                if href and href not in place_urls:
+                    place_urls.append(href)
+        else:
+            # Fallback for mobile view list:
+            # Scroll the page body directly to load items
+            print("  -> Desktop feed panel not found. Scrolling body for mobile list...")
+            scroll_count = 0
+            while scroll_count < 5:
+                await page.evaluate('window.scrollBy(0, 1000)')
+                await page.wait_for_timeout(1500)
+                scroll_count += 1
+                
+            # Grab all place detail URLs across the entire page DOM
+            listings = await page.query_selector_all("a[href*='/maps/place/']")
+            if not listings:
+                # Also fallback to general /place/ path urls
+                listings = await page.query_selector_all("a[href*='/place/']")
+                
+            place_urls = []
+            for link in listings:
+                href = await link.get_attribute("href")
+                if href and href not in place_urls:
+                    place_urls.append(href)
+                    
+            if not place_urls:
+                print("  -> No results feed found for this pincode.")
+                return []
             
     print(f"  -> Discovered {len(place_urls)} places in feed.")
     
