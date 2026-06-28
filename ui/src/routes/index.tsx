@@ -438,20 +438,6 @@ function Dashboard() {
     fetchStats();
     fetchRestaurants();
     fetchAdbDevices();
-  }, []);
-
-  // Poll live screen mirror
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    if (isMirrorOpen) {
-      intervalId = setInterval(() => {
-        setMirrorTimestamp(Date.now());
-      }, 1000);
-    }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [isMirrorOpen]);
 
     // Check if scraper is already running in backend on load
     const checkActiveScrapers = async () => {
@@ -496,6 +482,19 @@ function Dashboard() {
     };
     checkActiveScrapers();
   }, []);
+
+  // Poll live screen mirror
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    if (isMirrorOpen) {
+      intervalId = setInterval(() => {
+        setMirrorTimestamp(Date.now());
+      }, 1000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isMirrorOpen]);
 
   async function fetchStats() {
     try {
