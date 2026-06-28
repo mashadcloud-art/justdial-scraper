@@ -562,23 +562,9 @@ function Dashboard() {
     }
   }
 
-  async function handleStartMirror() {
-    setStartingMirror(true);
-    try {
-      // Force request to local backend running on port 8000 to launch scrcpy locally
-      const res = await fetch("http://localhost:8000/api/v1/adb/scrcpy/start", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        toast.success(data.message || "Mirror started successfully!");
-      } else {
-        const errData = await res.json();
-        throw new Error(errData.detail || "Failed to start mirror");
-      }
-    } catch (e: any) {
-      toast.error(e.message || "Is your local backend running?");
-    } finally {
-      setStartingMirror(false);
-    }
+  function handleStartMirror() {
+    toast.success("Launching local scrcpy mirror shortcut...");
+    window.location.href = "jdmirror://open";
   }
 
   async function openEmbeddedMirror() {

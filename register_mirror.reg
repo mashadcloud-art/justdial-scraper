@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\jdmirror]
+@="URL:JustDial Mirror Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\jdmirror\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\jdmirror\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\jdmirror\shell\open\command]
+@="\"C:\\Users\\PC\\Documents\\trae_projects\\Scapre for thozil\\Launch_Mirror_Instant.bat\""
