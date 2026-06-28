@@ -35,7 +35,7 @@ def start_vite():
     global _vite_url
     try:
         proc = subprocess.Popen(
-            "npm run dev",
+            "npm run preview",
             cwd=UI_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         time.sleep(0.3)
 
     time.sleep(1)
-    open_app(_vite_url or "http://localhost:5173")
+    open_app(_vite_url or "http://localhost:8080")
 
     # 5. Keep alive
     try:

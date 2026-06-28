@@ -262,6 +262,10 @@ function Dashboard() {
   const [refreshingDevices, setRefreshingDevices] = useState(false);
   const [startingMirror, setStartingMirror] = useState(false);
   
+  // Auto-scroll (Swipe & Scrape) States
+  const [scrollRunning, setScrollRunning] = useState(false);
+  const [scrollToggling, setScrollToggling] = useState(false);
+  
   // Mirror States
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [phoneWidth, setPhoneWidth] = useState(1080);
@@ -294,6 +298,22 @@ function Dashboard() {
     }
     checkProxyStatus();
     const interval = setInterval(checkProxyStatus, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll scroll status
+  useEffect(() => {
+    async function checkScrollStatus() {
+      try {
+        const res = await fetch(`${LOCAL_API}/adb/scroll/status`);
+        if (res.ok) {
+          const data = await res.json();
+          setScrollRunning(data.running);
+        }
+      } catch { /* ignore */ }
+    }
+    checkScrollStatus();
+    const interval = setInterval(checkScrollStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -363,6 +383,25 @@ function Dashboard() {
       toast.error(`Connection error: ${e.message}`);
     } finally {
       setProxyToggling(false);
+    }
+  }
+
+  async function toggleAutoScroll() {
+    setScrollToggling(true);
+    const action = scrollRunning ? "stop" : "start";
+    try {
+      const res = await fetch(`${LOCAL_API}/adb/scroll/${action}`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(data.message);
+        setScrollRunning(action === "start");
+      } else {
+        toast.error(`Failed to ${action} auto-swipe`);
+      }
+    } catch (e: any) {
+      toast.error(`Connection error: ${e.message}`);
+    } finally {
+      setScrollToggling(false);
     }
   }
 
@@ -1643,10 +1682,34 @@ function Dashboard() {
                             </div>
 
                             <div className="border-t pt-4 space-y-3">
-                              {/* Sub-section 3: JSON Ingestion */}
+                              {/* Sub-section 3: Manual Swipe & Scrape */}
+                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                                <Zap className="size-3.5 text-brand" />
+                                3. Manual Mode (Auto-Swipe & Scrape)
+                              </h4>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                Set up Proxy Routing, manually open your search on your phone, then click below to automate swiping and capture listings.
+                              </p>
+                              <Button
+                                onClick={toggleAutoScroll}
+                                disabled={scrollToggling}
+                                className={cn(
+                                  "w-full h-10 font-medium text-xs text-white transition-all shadow-md",
+                                  scrollRunning
+                                    ? "bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
+                                    : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                                )}
+                              >
+                                <Zap className={cn("size-4 mr-2", scrollRunning ? "animate-pulse" : "")} />
+                                {scrollRunning ? "⏹ Stop Auto-Swipe & Scrape" : "▶ Start Auto-Swipe & Scrape"}
+                              </Button>
+                            </div>
+
+                            <div className="border-t pt-4 space-y-3">
+                              {/* Sub-section 4: JSON Ingestion */}
                               <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                                 <Database className="size-3.5 text-brand" />
-                                3. Ingest Captured Payload
+                                4. Ingest Captured Payload
                               </h4>
                             <p className="text-xs text-muted-foreground">
                               Paste the JSON response intercepted by HTTP Toolkit from the JustDial mobile app. 
@@ -1668,10 +1731,10 @@ function Dashboard() {
                           </div>
 
                           <div className="border-t pt-4 space-y-3">
-                            {/* Sub-section 3: Bulk Folder Upload */}
+                            {/* Sub-section 5: Bulk Folder Upload */}
                             <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                               <Download className="size-3.5 text-brand" />
-                              3. Bulk Ingest Saved Folder
+                              5. Bulk Ingest Saved Folder
                             </h4>
                             <p className="text-xs text-muted-foreground">
                               Upload all JSON files saved in the <code>JustDial_JSONs</code> folder on your Desktop.
