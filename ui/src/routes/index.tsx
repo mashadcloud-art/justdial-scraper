@@ -2810,6 +2810,7 @@ function Dashboard() {
             </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
 
       {lightbox && <Lightbox data={lightbox} onChange={setLightbox} onClose={() => setLightbox(null)} />}
     </div>
