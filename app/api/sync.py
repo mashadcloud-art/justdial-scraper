@@ -82,11 +82,15 @@ def restart_server(background_tasks: BackgroundTasks):
 
 def _get_adb_path():
     if os.name == "nt":
+        scrcpy_adb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch", "scrcpy", "scrcpy-win64-v4.0", "adb.exe"))
+        if os.path.exists(scrcpy_adb):
+            return scrcpy_adb
         bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
         if os.path.exists(bluestacks_adb):
             return bluestacks_adb
         return os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
     return "adb"
+
 
 def _get_adb_devices(adb_path):
     try:

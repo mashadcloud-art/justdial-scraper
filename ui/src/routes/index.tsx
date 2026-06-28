@@ -256,6 +256,11 @@ function Dashboard() {
   const [phoneProxy, setPhoneProxy] = useState("Unknown");
   const [proxyToggling, setProxyToggling] = useState(false);
   
+  // Device Selection States
+  const [adbDevices, setAdbDevices] = useState<{ id: string; name: string }[]>([]);
+  const [activeDevice, setActiveDevice] = useState<string | null>(null);
+  const [refreshingDevices, setRefreshingDevices] = useState(false);
+  
   // Compiled JSONs browser states
   const [compiledJsons, setCompiledJsons] = useState<any[]>([]);
   const [loadingJsons, setLoadingJsons] = useState(false);
@@ -426,6 +431,7 @@ function Dashboard() {
   useEffect(() => {
     fetchStats();
     fetchRestaurants();
+    fetchAdbDevices();
 
     // Check if scraper is already running in backend on load
     const checkActiveScrapers = async () => {
@@ -496,6 +502,45 @@ function Dashboard() {
       return `/scraped_images/${filename}`;
     }
     return `/${norm}`;
+  }
+
+  async function fetchAdbDevices() {
+    setRefreshingDevices(true);
+    try {
+      const res = await fetch(`${LOCAL_API}/adb/devices`);
+      if (res.ok) {
+        const data = await res.json();
+        setAdbDevices(data.devices || []);
+      }
+      
+      const activeRes = await fetch(`${LOCAL_API}/adb/device/active`);
+      if (activeRes.ok) {
+        const data = await activeRes.json();
+        setActiveDevice(data.device_id);
+      }
+    } catch (e) {
+      console.error("Failed to fetch ADB devices:", e);
+    } finally {
+      setRefreshingDevices(false);
+    }
+  }
+
+  async function handleSelectAdbDevice(deviceId: string) {
+    try {
+      const res = await fetch(`${LOCAL_API}/adb/device/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId }),
+      });
+      if (res.ok) {
+        setActiveDevice(deviceId);
+        toast.success(`Active device set to ${deviceId}`);
+      } else {
+        toast.error("Failed to select device");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
   async function fetchRestaurants() {
@@ -1488,6 +1533,39 @@ function Dashboard() {
                                   <><Play className="size-4 mr-2" />Start Proxy Routing</>
                                 )}
                               </Button>
+                            </div>
+
+                            <div className="border-t pt-4 space-y-3">
+                              {/* Sub-section 2: Target Device Selection */}
+                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                                <Activity className="size-3.5 text-brand" />
+                                2. Target Device Selection
+                              </h4>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                Choose which emulator instance or physical mobile phone to target for ADB operations.
+                              </p>
+                              
+                              <div className="flex gap-2">
+                                <select
+                                  value={activeDevice || ""}
+                                  onChange={(e) => handleSelectAdbDevice(e.target.value)}
+                                  className="flex-1 h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                                >
+                                  <option value="">-- Autodetect / First Device --</option>
+                                  {adbDevices.map((d) => (
+                                    <option key={d.id} value={d.id}>
+                                      {d.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  onClick={fetchAdbDevices}
+                                  disabled={refreshingDevices}
+                                  className="h-10 px-3 bg-secondary hover:bg-secondary-dark text-foreground flex items-center justify-center rounded-lg"
+                                >
+                                  <RefreshCw className={`size-4 ${refreshingDevices ? 'animate-spin' : ''}`} />
+                                </Button>
+                              </div>
                             </div>
 
                             <div className="border-t pt-4 space-y-3">

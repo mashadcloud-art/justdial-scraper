@@ -8,17 +8,42 @@ from typing import List
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
-ADB_PATH = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
+import os
+
+if os.name == "nt":
+    scrcpy_adb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch", "scrcpy", "scrcpy-win64-v4.0", "adb.exe"))
+    if os.path.exists(scrcpy_adb):
+        ADB_PATH = scrcpy_adb
+    else:
+        bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
+        ADB_PATH = bluestacks_adb if os.path.exists(bluestacks_adb) else os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
+else:
+    ADB_PATH = "adb"
+
+def _detect_device() -> str:
+    """Detect the active ADB device to target."""
+    try:
+        active_device_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "active_device.txt"))
+        if os.path.exists(active_device_path):
+            with open(active_device_path, "r") as f:
+                device = f.read().strip()
+                if device:
+                    return f"-s {device}"
+    except Exception:
+        pass
+    return ""
 
 def run_adb(cmd: str) -> str:
     """Run an ADB shell command."""
-    full_cmd = f'"{ADB_PATH}" shell {cmd}'
+    target = _detect_device()
+    full_cmd = f'"{ADB_PATH}" {target} shell {cmd}'
     try:
         result = subprocess.check_output(full_cmd, shell=True, text=True)
         return result.strip()
     except subprocess.CalledProcessError as e:
         logging.error(f"ADB command failed: {e}")
         return ""
+
 
 def tap(x: int, y: int):
     """Tap at specific coordinates."""
@@ -42,10 +67,10 @@ def go_back():
     logging.info("Pressing BACK")
     run_adb("input keyevent 4")
 
-def swipe_up(duration_ms=1000):
+def swipe_up(duration_ms=2000):
     """Swipe up to scroll down the page."""
     logging.info("Swiping up...")
-    run_adb(f"input swipe 500 1500 500 300 {duration_ms}")
+    run_adb(f"input swipe 10 1500 10 300 {duration_ms}")
 
 def human_delay(min_sec=1.0, max_sec=2.5):
     """Sleep for a random amount of time to simulate a human."""
