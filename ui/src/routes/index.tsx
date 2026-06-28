@@ -260,6 +260,7 @@ function Dashboard() {
   const [adbDevices, setAdbDevices] = useState<{ id: string; name: string }[]>([]);
   const [activeDevice, setActiveDevice] = useState<string | null>(null);
   const [refreshingDevices, setRefreshingDevices] = useState(false);
+  const [startingMirror, setStartingMirror] = useState(false);
   
   // Compiled JSONs browser states
   const [compiledJsons, setCompiledJsons] = useState<any[]>([]);
@@ -540,6 +541,24 @@ function Dashboard() {
       }
     } catch (e: any) {
       toast.error(e.message);
+    }
+  }
+
+  async function handleStartMirror() {
+    setStartingMirror(true);
+    try {
+      const res = await fetch(`${LOCAL_API}/adb/scrcpy/start`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(data.message || "Mirror started successfully!");
+      } else {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to start mirror");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setStartingMirror(false);
     }
   }
 
@@ -1566,6 +1585,15 @@ function Dashboard() {
                                   <RefreshCw className={`size-4 ${refreshingDevices ? 'animate-spin' : ''}`} />
                                 </Button>
                               </div>
+
+                              <Button
+                                onClick={handleStartMirror}
+                                disabled={startingMirror}
+                                className="w-full h-10 mt-2 text-white font-medium shadow-brand text-xs bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+                              >
+                                <AppWindow className="size-4 mr-2" />
+                                {startingMirror ? "Starting Screen Mirror..." : "💻 Open Screen Mirror (scrcpy)"}
+                              </Button>
                             </div>
 
                             <div className="border-t pt-4 space-y-3">

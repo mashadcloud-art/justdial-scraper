@@ -1520,3 +1520,49 @@ def ingest_compiled_json(filename: str):
         return {"status": "success", "message": f"Successfully ingested {count} listings from {filename}.", "count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to ingest: {str(e)}")
+
+@router.post("/adb/scrcpy/start")
+def start_scrcpy_mirror():
+    import subprocess
+    import os
+    
+    adb_path = _get_adb_path()
+    # Resolve scrcpy.exe path relative to adb_path
+    if "scrcpy-win64" in adb_path:
+        scrcpy_exe = adb_path.replace("adb.exe", "scrcpy.exe")
+    else:
+        scrcpy_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch", "scrcpy", "scrcpy-win64-v4.0", "scrcpy.exe"))
+        
+    if not os.path.exists(scrcpy_exe):
+        raise HTTPException(status_code=404, detail="scrcpy.exe not found.")
+        
+    devices = _get_adb_devices(adb_path)
+    target_device = ""
+    
+    # Read active device
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            saved_device = f.read().strip()
+            if saved_device and saved_device in devices:
+                target_device = saved_device
+                
+    if not target_device and devices:
+        target_device = devices[0]
+        
+    if not target_device:
+        # Fallback to the default Tailscale IP
+        target_device = "100.110.105.12:5555"
+        # Try to connect it first
+        try:
+            subprocess.run(f'"{adb_path}" connect {target_device}', shell=True, timeout=5)
+        except Exception:
+            pass
+
+    try:
+        # Launch scrcpy in the background as a separate process without locking FastAPI
+        cmd = f'"{scrcpy_exe}" -s {target_device} --tcpip={target_device}'
+        subprocess.Popen(cmd, shell=True)
+        return {"status": "success", "message": f"scrcpy started for {target_device}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
