@@ -35,11 +35,11 @@ def start_vite():
     global _vite_url
     try:
         proc = subprocess.Popen(
-            ["npm.cmd", "run", "dev"],
+            "npm run dev",
             cwd=UI_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            shell=True,
             text=True
         )
         for line in proc.stdout:
