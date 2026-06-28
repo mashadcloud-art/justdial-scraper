@@ -262,6 +262,12 @@ function Dashboard() {
   const [refreshingDevices, setRefreshingDevices] = useState(false);
   const [startingMirror, setStartingMirror] = useState(false);
   
+  // Mirror States
+  const [isMirrorOpen, setIsMirrorOpen] = useState(false);
+  const [phoneWidth, setPhoneWidth] = useState(1080);
+  const [phoneHeight, setPhoneHeight] = useState(1920);
+  const [mirrorTimestamp, setMirrorTimestamp] = useState(Date.now());
+  
   // Compiled JSONs browser states
   const [compiledJsons, setCompiledJsons] = useState<any[]>([]);
   const [loadingJsons, setLoadingJsons] = useState(false);
@@ -428,11 +434,24 @@ function Dashboard() {
   const [statsTotal, setStatsTotal] = useState(0);
   const [statsImages, setStatsImages] = useState(0);
 
-  // Load real data from API on mount
   useEffect(() => {
     fetchStats();
     fetchRestaurants();
     fetchAdbDevices();
+  }, []);
+
+  // Poll live screen mirror
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    if (isMirrorOpen) {
+      intervalId = setInterval(() => {
+        setMirrorTimestamp(Date.now());
+      }, 1000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isMirrorOpen]);
 
     // Check if scraper is already running in backend on load
     const checkActiveScrapers = async () => {
@@ -560,6 +579,39 @@ function Dashboard() {
     } finally {
       setStartingMirror(false);
     }
+  }
+
+  async function openEmbeddedMirror() {
+    setIsMirrorOpen(true);
+    try {
+      const res = await fetch(`${LOCAL_API}/phone/size`);
+      if (res.ok) {
+        const data = await res.json();
+        setPhoneWidth(data.width || 1080);
+        setPhoneHeight(data.height || 1920);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function handleMirrorClick(e: React.MouseEvent<HTMLImageElement>) {
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Scale coordinates to the phone's physical resolution
+    const scaleX = phoneWidth / rect.width;
+    const scaleY = phoneHeight / rect.height;
+    
+    const tapX = Math.round(x * scaleX);
+    const tapY = Math.round(y * scaleY);
+    
+    // Send tap command
+    await fetch(`${LOCAL_API}/phone/control?action=tap&x=${tapX}&y=${tapY}`);
+    // Force immediate refresh
+    setMirrorTimestamp(Date.now());
   }
 
   async function fetchRestaurants() {
@@ -1592,7 +1644,15 @@ function Dashboard() {
                                 className="w-full h-10 mt-2 text-white font-medium shadow-brand text-xs bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
                               >
                                 <AppWindow className="size-4 mr-2" />
-                                {startingMirror ? "Starting Screen Mirror..." : "💻 Open Screen Mirror (scrcpy)"}
+                                {startingMirror ? "Starting Screen Mirror..." : "💻 Open Local Mirror (scrcpy)"}
+                              </Button>
+
+                              <Button
+                                onClick={openEmbeddedMirror}
+                                className="w-full h-10 mt-2 text-white font-medium shadow-brand text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
+                              >
+                                <Activity className="size-4 mr-2" />
+                                📱 Open Embedded Phone Mirror
                               </Button>
                             </div>
 
@@ -2678,6 +2738,79 @@ function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Live Mobile Mirror Modal */}
+      <Dialog open={isMirrorOpen} onOpenChange={setIsMirrorOpen}>
+        <DialogContent className="max-w-md flex flex-col p-6 items-center">
+          <DialogHeader className="w-full text-center">
+            <DialogTitle className="text-base font-semibold flex items-center justify-center gap-2">
+              <Activity className="size-4.5 text-brand animate-pulse" />
+              Live Phone Screen Mirror
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="relative mt-4 bg-zinc-950 p-2 rounded-2xl border border-zinc-800 shadow-2xl flex items-center justify-center select-none max-w-[280px]">
+            <img
+              src={`${LOCAL_API}/phone/screen?t=${mirrorTimestamp}`}
+              className="max-h-[60vh] object-contain rounded-xl cursor-pointer"
+              onClick={handleMirrorClick}
+              alt="Phone Screen"
+            />
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-2 justify-center w-full">
+            <Button
+              onClick={async () => {
+                await fetch(`${LOCAL_API}/phone/control?action=back`);
+                setMirrorTimestamp(Date.now());
+              }}
+              variant="secondary"
+              className="text-xs"
+            >
+              ◀ Back
+            </Button>
+            <Button
+              onClick={async () => {
+                await fetch(`${LOCAL_API}/phone/control?action=home`);
+                setMirrorTimestamp(Date.now());
+              }}
+              variant="secondary"
+              className="text-xs"
+            >
+              ● Home
+            </Button>
+            <Button
+              onClick={async () => {
+                await fetch(`${LOCAL_API}/phone/control?action=scroll_up`);
+                setMirrorTimestamp(Date.now());
+              }}
+              variant="secondary"
+              className="text-xs"
+            >
+              ▲ Scroll Up
+            </Button>
+            <Button
+              onClick={async () => {
+                await fetch(`${LOCAL_API}/phone/control?action=scroll_down`);
+                setMirrorTimestamp(Date.now());
+              }}
+              variant="secondary"
+              className="text-xs"
+            >
+              ▼ Scroll Down
+            </Button>
+          </div>
+
+          <DialogFooter className="mt-4 w-full">
+            <Button
+              onClick={() => setIsMirrorOpen(false)}
+              className="w-full text-xs text-white"
+              style={{ background: "var(--gradient-brand)" }}
+            >
+              Close Mirror
+            </Button>
+          </DialogFooter>
+        </DialogContent>
 
       {lightbox && <Lightbox data={lightbox} onChange={setLightbox} onClose={() => setLightbox(null)} />}
     </div>

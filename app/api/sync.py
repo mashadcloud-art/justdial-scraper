@@ -1566,3 +1566,96 @@ def start_scrcpy_mirror():
         return {"status": "success", "message": f"scrcpy started for {target_device}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/phone/screen")
+def get_phone_screen_api():
+    import io
+    from fastapi.responses import StreamingResponse
+    
+    adb_path = _get_adb_path()
+    devices = _get_adb_devices(adb_path)
+    target = ""
+    
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            saved_device = f.read().strip()
+            if saved_device and saved_device in devices:
+                target = f"-s {saved_device}"
+                
+    if not target and devices:
+        target = f"-s {devices[0]}"
+        
+    if not target:
+        target = "-s 100.110.105.12:5555" # Default fallback
+        
+    cmd = f'"{adb_path}" {target} shell screencap -p'
+    result = subprocess.run(cmd, shell=True, capture_output=True)
+    if result.returncode == 0:
+        return StreamingResponse(io.BytesIO(result.stdout), media_type="image/png")
+    return {"error": "Failed to capture screen or device offline"}
+
+@router.get("/phone/control")
+def control_phone_api(action: str, x: int = None, y: int = None):
+    adb_path = _get_adb_path()
+    devices = _get_adb_devices(adb_path)
+    target = ""
+    
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            saved_device = f.read().strip()
+            if saved_device and saved_device in devices:
+                target = f"-s {saved_device}"
+                
+    if not target and devices:
+        target = f"-s {devices[0]}"
+        
+    if not target:
+        target = "-s 100.110.105.12:5555" # Default fallback
+        
+    cmd = ""
+    if action == "tap" and x is not None and y is not None:
+        cmd = f'"{adb_path}" {target} shell input tap {x} {y}'
+    elif action == "scroll_down":
+        cmd = f'"{adb_path}" {target} shell input swipe 500 1500 500 400 800'
+    elif action == "scroll_up":
+        cmd = f'"{adb_path}" {target} shell input swipe 500 400 500 1500 800'
+    elif action == "back":
+        cmd = f'"{adb_path}" {target} shell input keyevent 4'
+    elif action == "home":
+        cmd = f'"{adb_path}" {target} shell input keyevent 3'
+        
+    if cmd:
+        subprocess.run(cmd, shell=True)
+        return {"status": "ok", "action": action}
+    return {"status": "error", "message": "Invalid action"}
+
+@router.get("/phone/size")
+def get_phone_size_api():
+    adb_path = _get_adb_path()
+    devices = _get_adb_devices(adb_path)
+    target = ""
+    
+    config_path = os.path.join(settings.DATA_FOLDER, "active_device.txt")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            saved_device = f.read().strip()
+            if saved_device and saved_device in devices:
+                target = f"-s {saved_device}"
+                
+    if not target and devices:
+        target = f"-s {devices[0]}"
+        
+    if not target:
+        target = "-s 100.110.105.12:5555" # Default fallback
+        
+    try:
+        out = subprocess.check_output(f'"{adb_path}" {target} shell wm size', shell=True, text=True, timeout=3)
+        if "size:" in out:
+            size_str = out.split("size:")[-1].strip()
+            w, h = map(int, size_str.split("x"))
+            return {"width": w, "height": h}
+    except Exception:
+        pass
+    return {"width": 1440, "height": 2960}
