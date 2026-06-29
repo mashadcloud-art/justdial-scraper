@@ -45,6 +45,17 @@ def get_pincodes_for_district(district_name: str):
             
         district_pins = []
         search_district = district_name.lower().strip()
+        
+        # Normalize common spelling variations
+        normalization_map = {
+            "kasaragod": "kasargod",
+            "alappuzha": "alleppey",
+            "thiruvananthapuram": "trivandrum",
+            "thrissur": "trichur",
+            "kozhikode": "calicut"
+        }
+        search_district = normalization_map.get(search_district, search_district)
+
         for item in all_data:
             d_name = str(item.get("districtName", "")).lower().strip()
             if search_district in d_name:

@@ -35,6 +35,7 @@ import {
   UtensilsCrossed,
   X,
   Zap,
+  Cloud,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { Button } from "@/components/ui/button";
@@ -353,6 +354,8 @@ function Dashboard() {
       setEngine("emulator");
     } else if (activeTab === "web_scraper") {
       setEngine("selenium");
+    } else if (activeTab === "cloud_direct") {
+      setEngine("jwt_api");
     }
   }, [activeTab]);
 
@@ -1243,6 +1246,7 @@ function Dashboard() {
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => setActiveTab("scraper")}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<AppWindow className="size-4" />}     label="Web Scraper"     active={activeTab === "web_scraper"} onClick={() => setActiveTab("web_scraper")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<Cloud className="size-4" />}         label="Cloud Direct"    active={activeTab === "cloud_direct"} onClick={() => setActiveTab("cloud_direct")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<MapPin className="size-4" />}         label="Maps Scraper"  active={activeTab === "gmaps"}     onClick={() => setActiveTab("gmaps")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
@@ -1326,7 +1330,7 @@ function Dashboard() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -2182,6 +2186,135 @@ function Dashboard() {
                 </div>
               )
             )}
+            {/* ☁️ CLOUD DIRECT TAB ☁️ */}
+            {activeTab === "cloud_direct" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Location & Category */}
+                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Cloud className="size-4 text-brand" />
+                    <h3 className="text-base font-semibold">Location & Category (Cloud Direct)</h3>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    This scraper runs completely on the cloud server using JustDial's internal API signed with JWT keys. No physical phone, emulator, or browser is required.
+                  </p>
+
+                  <div className="space-y-4 pt-2">
+                    {/* State selection */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">State</label>
+                      <select
+                        value={state}
+                        onChange={(e) => {
+                          setState(e.target.value);
+                          // Auto select first district of new state
+                          const stateCities = CITIES[e.target.value] || [];
+                          if (stateCities.length > 0) setCity(stateCities[0]);
+                        }}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                      >
+                        {Object.keys(CITIES).map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* District selection */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">District / City</label>
+                      <select
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                      >
+                        {(CITIES[state] || []).map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Category selection */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">Category</label>
+                      <select
+                        value={category}
+                        onChange={(e) => {
+                          setCategory(e.target.value);
+                          const subcats = SUBCATEGORIES[e.target.value] || [];
+                          setSubcategory(subcats[0] || "All");
+                        }}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                      >
+                        {Object.keys(SUBCATEGORIES).map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Pages limit */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">Pages limit (Per Pincode)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={maxEntries}
+                        onChange={(e) => setMaxEntries(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                      />
+                      <p className="text-[10px] text-muted-foreground">1 page = 10 search results. Bypasses district limits by querying pincodes.</p>
+                    </div>
+
+                    {/* Run Controls */}
+                    <div className="flex gap-3 pt-3">
+                      <Button
+                        onClick={startScraping}
+                        disabled={running}
+                        className="flex-1 h-10 text-white font-medium shadow-brand text-xs"
+                        style={{ background: "var(--gradient-brand)" }}
+                      >
+                        {running && status === "Scraping..." ? "Scraping Cloud..." : "Start Cloud Scrape"}
+                      </Button>
+                      
+                      {running && (
+                        <Button
+                          onClick={async () => {
+                            await fetch(`${API}/scrape/stop`, { method: "POST" });
+                            toast.info("Stopping Cloud Scraper...");
+                          }}
+                          className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white text-xs font-medium"
+                        >
+                          Stop
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Right Column: Activity Log */}
+                <div className="flex flex-col gap-5">
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant flex flex-col flex-1 space-y-4 min-h-[300px]">
+                    <div className="flex items-center gap-2 border-b pb-3 shrink-0">
+                      <Activity className="size-5 text-brand" />
+                      <h3 className="text-base font-semibold">Activity Log</h3>
+                      {running && <span className="size-2 rounded-full bg-emerald-500 animate-pulse ml-auto" />}
+                    </div>
+
+                    {/* Log Display Box */}
+                    <div ref={logRef} className="flex-1 bg-background/50 rounded-xl ring-1 ring-border p-4 font-mono text-xs overflow-y-auto space-y-2 max-h-[350px]">
+                      {log.map((entry, i) => (
+                        <div key={i} className={`leading-relaxed ${entry.ok ? 'text-foreground' : 'text-red-500'}`}>
+                          <span className="text-muted-foreground select-none">[{entry.time}]</span> {entry.msg}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            )}
+
+
 
             {/* ── WEB SCRAPER TAB ── */}
             {activeTab === "web_scraper" && (

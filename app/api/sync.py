@@ -97,7 +97,7 @@ def _get_adb_devices(adb_path):
         if os.name != "nt":
             # On remote Linux server, connect to desktop emulator over Tailscale VPN
             try:
-                subprocess.run(f'"{adb_path}" connect 100.97.77.69:5555', shell=True, timeout=8)
+                subprocess.run(f'"{adb_path}" connect 100.103.62.50:5555', shell=True, timeout=8)
             except Exception:
                 pass
         else:
@@ -725,6 +725,10 @@ def trigger_scrape(
                         areas = get_areas_for_district(city)
                         log(f"ADB Emulator: '{search_cat}' in '{city}' — {len(areas)} areas to search: {', '.join(areas)}")
                         automate_location_search(areas, search_cat, scrolls=max_limit, city=city)
+                    elif engine == "jwt_api":
+                        from jd_api_scraper import scrape_jwt_city
+                        search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
+                        scrape_jwt_city(city, search_cat, pages=max_limit, limit=10, dry_run=False)
                     else:
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                     
@@ -1243,6 +1247,20 @@ def trigger_smart_scrape(
 # ==========================================
 
 def _get_local_ip():
+    if os.name != "nt":
+        try:
+            # Try to get tailscale0 IP address
+            import subprocess
+            out = subprocess.check_output("ip -o -4 addr show dev tailscale0", shell=True, text=True)
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    ip = parts[3].split('/')[0]
+                    if ip.startswith("100."):
+                        return ip
+        except Exception:
+            pass
+        return "129.151.146.44"
     import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -1300,7 +1318,7 @@ def api_start_proxy():
         elif os.path.exists(path2):
             mitmdump_path = path2
         
-    cmd = [mitmdump_path, "-s", "app/scraper/mitm_addon.py", "-p", "8089"]
+    cmd = [mitmdump_path, "-s", "app/scraper/mitm_addon.py", "-p", "8089", "--set", "block_global=false"]
     try:
         # Run it in background and redirect output to a log file
         log_file = open("mitmdump_live.log", "w", encoding="utf-8")
