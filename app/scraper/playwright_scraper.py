@@ -3,9 +3,10 @@ import json
 import logging
 import time
 import requests
+import os
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth
+from playwright_stealth import Stealth
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = context.new_page()
-            stealth(page)
+            Stealth().apply_stealth_sync(page)
             
             # First resolve the canonical URL by loading page 1
             log(f"Resolving canonical URL for {base_url}...")
@@ -170,7 +171,7 @@ def preview_page(district: str, main_cat: str, subcat: str, page_num=1, browser_
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = context.new_page()
-            stealth(page)
+            Stealth().apply_stealth_sync(page)
             
             # First resolve the canonical URL by loading page 1
             log(f"[DEBUG] Resolving canonical URL for {base_url}...")

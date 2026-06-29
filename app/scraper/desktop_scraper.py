@@ -326,9 +326,10 @@ def scrape_restaurant_details(driver, restaurant_url: str) -> Dict:
             "access denied" in body_text.lower() or
             "blocked" in body_text.lower() or
             "justdial.com/login" in current_url):
-            log(f"   ⚠️ Blank or blocked page detected — skipping: {restaurant_url}")
+            log(f"   ⚠️ Blank or blocked page detected — skipping: {restaurant_url} (body_len={len(body_text)}, title='{page_title}', url='{current_url}', body='{body_text[:100]}')")
             return {}
-    except Exception:
+    except Exception as e:
+        log(f"   ⚠️ Exception during blank check: {e}")
         pass
     
     # Extract NEXT_DATA immediately before any clicks trigger modals or CAPTCHA
@@ -506,7 +507,7 @@ def build_driver(browser_type="chrome"):
     # This is what allows detail pages (_BZDET) to load without being blocked
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
-    chrome_user_data = os.path.join(project_root, "chrome_user_data")
+    chrome_user_data = os.path.join(project_root, "chrome_user_data_test")
     chrome_drivers_dir = os.path.join(project_root, "chrome_drivers")
     os.makedirs(chrome_user_data, exist_ok=True)
     os.makedirs(chrome_drivers_dir, exist_ok=True)
@@ -516,6 +517,8 @@ def build_driver(browser_type="chrome"):
         opts.add_argument("--start-maximized")
         opts.add_argument("--disable-notifications")
         opts.add_argument("--lang=en-US")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
         if HEADLESS:
             opts.add_argument("--headless=new")
             opts.add_argument("--window-size=1920,1080")
@@ -636,8 +639,8 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
             current_url = resolved_base_url if page_num == 1 else f"{resolved_base_url}/page-{page_num}"
             log(f"📄 Fetching page {page_num}: {current_url}")
             try:
-                if page_num > start_page:
-                    safe_get(driver, current_url)
+                safe_get(driver, current_url)
+                time.sleep(5)
                 scroll_until_stable(driver, max_rounds=6)
             except Exception as e:
                 log(f"⚠️ Failed page {page_num}: {e}")
@@ -647,6 +650,11 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
             page_urls = extract_links_from_page(driver)
 
             if not page_urls:
+                try:
+                    driver.save_screenshot("desktop_scraper_error.png")
+                    log("📸 Saved debug screenshot: desktop_scraper_error.png")
+                except Exception as se:
+                    log(f"⚠️ Failed to save screenshot: {se}")
                 log("No items found on this page, might have reached the end.")
                 break
 
