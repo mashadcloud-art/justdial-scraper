@@ -14,38 +14,38 @@ API_UPLOAD_URL = "http://localhost:8000/api/v1/upload-listing"
 
 def _extract_from_dom(page_source):
     from bs4 import BeautifulSoup
+    import re
     soup = BeautifulSoup(page_source, 'html.parser')
-    results = soup.find_all(['h2', 'h3', 'div', 'span', 'a'])
     
-    names = []
-    phones = []
+    extracted = []
     seen_names = set()
     
-    for r in results:
-        if r.get('class'):
-            classes = r.get('class')
-            if isinstance(classes, list):
-                class_str = " ".join(classes).lower()
-            else:
-                class_str = str(classes).lower()
-                
-            text = r.text.strip()
+    # Find all business name links containing _BZDET
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag["href"].strip()
+        if "_BZDET" not in href:
+            continue
+        text = a_tag.get_text(strip=True)
+        # Skip "+135More" or similar helper links
+        if not text or text.startswith("+") or "more" in text.lower():
+            continue
             
-            if 'title' in class_str or 'name' in class_str:
-                if r.name in ['h2', 'h3'] and len(text) > 3:
-                    if text not in seen_names:
-                        names.append(text)
-                        seen_names.add(text)
-                        
-            if 'call' in class_str or 'phone' in class_str or 'mob' in class_str:
-                if len(text) >= 10 and text not in phones:
-                    phones.append(text)
-                    
-    extracted = []
-    for i, name in enumerate(names):
-        phone = phones[i] if i < len(phones) else "N/A"
-        extracted.append({"name": name, "phone": phone})
-        
+        name = text.strip()
+        if name not in seen_names:
+            seen_names.add(name)
+            
+            # Look for contact details in parent/sibling elements
+            phone = "N/A"
+            parent = a_tag.find_parent()
+            if parent:
+                # Search parent or sibling structures for phone number patterns
+                parent_text = parent.get_text()
+                phone_match = re.search(r'(?:\+91|0)?[6-9]\d{9}', parent_text)
+                if phone_match:
+                    phone = phone_match.group(0)
+            
+            extracted.append({"name": name, "phone": phone})
+            
     log(f"[DEBUG] _extract_from_dom extracted {len(extracted)} items.")
     return extracted
 
