@@ -239,9 +239,6 @@ def save_to_db(db, listing_data: dict, category: str) -> tuple[bool, bool]:
         if not existing.longitude and listing_data["longitude"]:
             existing.longitude = listing_data["longitude"]
             updated = True
-        if not existing.rating and listing_data["rating"]:
-            existing.rating = listing_data["rating"]
-            updated = True
 
         # Add images if missing
         img_count = db.query(models.ListingImage).filter_by(listing_id=existing.id).count()
