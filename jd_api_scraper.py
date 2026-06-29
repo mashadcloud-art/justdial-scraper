@@ -147,6 +147,28 @@ def parse_row(columns: list, row: list, district: str, category: str) -> dict:
     # Core fields
     name = str(get("name", "")).strip()
     phone = str(get("VNumber", "")).strip()
+    
+    # Fallback to direct mobile number from CALL button val list if virtual number is empty
+    if not phone:
+        vjd = get("vertical_jadoo_data", [])
+        if not isinstance(vjd, list) or not vjd:
+            # Try vertical object
+            vertical = get("vertical", {})
+            if isinstance(vertical, dict):
+                vjd = vertical.get("other", {}).get("actionurl", [])
+        
+        if isinstance(vjd, list):
+            for btn in vjd:
+                if btn.get("button_text") == "CALL":
+                    vals = btn.get("val", [])
+                    if vals:
+                        val = str(vals[0]).strip()
+                        if val.startswith("91") and len(val) == 12:
+                            phone = f"+(91)-{val[2:]}"
+                        else:
+                            phone = val
+                        break
+
     address = str(get("NewAddress", "")).strip()
     area = str(get("area", "")).strip()
     lat = get("lat")
@@ -157,6 +179,17 @@ def parse_row(columns: list, row: list, district: str, category: str) -> dict:
 
     # Build JustDial listing URL
     jd_url = f"https://www.justdial.com/{district}/{name.replace(' ', '-')}/{doc_id}" if doc_id else ""
+
+    # Parse opening hours (timings)
+    opstring = get("opstring", {})
+    opening_hours = ""
+    if isinstance(opstring, dict):
+        timing = opstring.get("timing", "")
+        status = opstring.get("status", "")
+        if timing:
+            opening_hours = timing
+        elif status:
+            opening_hours = status
 
     # Images — dimages contains full-resolution URLs
     dimages = get("dimages", [])
@@ -205,6 +238,7 @@ def parse_row(columns: list, row: list, district: str, category: str) -> dict:
         "doc_id": doc_id,
         "images": images,
         "photo_count": photo_cnt,
+        "opening_hours": opening_hours,
     }
 
 
@@ -239,6 +273,9 @@ def save_to_db(db, listing_data: dict, category: str) -> tuple[bool, bool]:
         if not existing.longitude and listing_data["longitude"]:
             existing.longitude = listing_data["longitude"]
             updated = True
+        if not existing.opening_hours and listing_data.get("opening_hours"):
+            existing.opening_hours = listing_data["opening_hours"]
+            updated = True
 
         # Add images if missing
         img_count = db.query(models.ListingImage).filter_by(listing_id=existing.id).count()
@@ -263,6 +300,7 @@ def save_to_db(db, listing_data: dict, category: str) -> tuple[bool, bool]:
         latitude=str(listing_data["latitude"]) if listing_data["latitude"] is not None else None,
         longitude=str(listing_data["longitude"]) if listing_data["longitude"] is not None else None,
         jd_url=listing_data["jd_url"],
+        opening_hours=listing_data["opening_hours"],
     )
 
     try:
