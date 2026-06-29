@@ -341,7 +341,10 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
                 break
 
             log(f"--- Page {page}/{pages} ---")
-            result = scrape_jd_api(target, category, page=page, limit=limit)
+            if target.isdigit() and len(target) == 6:
+                result = scrape_jd_api(district, f"{category} {target}", page=page, limit=limit)
+            else:
+                result = scrape_jd_api(target, category, page=page, limit=limit)
 
             columns = result.get("columns", [])
             rows = result.get("rows", [])
