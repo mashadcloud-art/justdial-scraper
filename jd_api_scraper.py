@@ -259,14 +259,12 @@ def save_to_db(db, listing_data: dict, category: str) -> tuple[bool, bool]:
         name=name,
         phone=phone,
         address=listing_data["address"],
-        location=listing_data["location"],
+        place=listing_data["area"],
         district=district,
         state="Kerala",
         category=category,
-        latitude=listing_data["latitude"],
-        longitude=listing_data["longitude"],
-        rating=listing_data["rating"],
-        reviews_count=listing_data["reviews_count"],
+        latitude=str(listing_data["latitude"]) if listing_data["latitude"] is not None else None,
+        longitude=str(listing_data["longitude"]) if listing_data["longitude"] is not None else None,
         jd_url=listing_data["jd_url"],
     )
 
