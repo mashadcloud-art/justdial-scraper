@@ -435,162 +435,220 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             # GALLERY PHOTO EXTRACTION: Click into the photo gallery to get multiple images
             image_urls = []
             seen_canonical = set()
+
             try:
-                # First try to click the "All photos" / hero image button to open gallery
                 if max_photos > 1:
                     gallery_opened = False
-                    gallery_selectors = [
+
+                    # --- STEP 1: Open the photo gallery grid view ---
+                    # Try clicking the hero image / "X photos" button
+                    open_selectors = [
                         "button[jsaction*='heroHeaderImage']",
                         "div[jsaction*='heroHeaderImage']",
                         "button.aoRNLd",
                         "div.RZ66Rb",
                         "button[aria-label*='photo' i]",
                         "button[aria-label*='Photo']",
-                        "div[role='button']:has(img)"
+                        # The "N photos" button
+                        "button[jsaction*='pane.photo']",
+                        "a[jsaction*='pane.photo']",
+                        # Hero image container itself
+                        "div.b0cq8c",
+                        "div.RZ66Rb > div",
+                        "div[jsaction*='openPhoto']",
                     ]
-                    for sel in gallery_selectors:
+
+                    for sel in open_selectors:
                         try:
                             btn = await page.query_selector(sel)
                             if btn:
                                 await btn.click()
-                                await page.wait_for_timeout(2500)
-                                gallery_opened = True
-                                break
+                                await page.wait_for_timeout(3000)
+                                # Check if photo viewer opened
+                                photo_viewer = await page.query_selector(
+                                    "div[jsaction*='photoView'], "
+                                    "div[role='dialog'] img, "
+                                    "div.SGGTgf"
+                                )
+                                if photo_viewer or gallery_opened is False:
+                                    gallery_opened = True
+                                    break
                         except Exception:
                             pass
 
+                    # --- STEP 2: If gallery opened, scroll the photo grid aggressively ---
                     if gallery_opened:
-                        # Scroll the gallery aggressively to load ALL lazy images
-                        prev_count = 0
-                        for scroll_round in range(15):
+                        prev_img_count = 0
+                        stale_rounds = 0
+                        max_scroll_rounds = 80  # <-- increased from 15 to 80
+
+                        for scroll_round in range(max_scroll_rounds):
                             try:
-                                # Scroll the gallery container, not the page
-                                await page.evaluate("""
+                                # Scroll ALL scrollable containers that have google images
+                                # (not just the first one found)
+                                scrolled = await page.evaluate("""
                                     () => {
-                                        // Dynamically find the scrollable gallery container
+                                        let didScroll = false;
                                         let divs = Array.from(document.querySelectorAll('div'));
-                                        let container = divs.find(d => {
+                                        for (let d of divs) {
                                             let style = window.getComputedStyle(d);
-                                            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
-                                                let imgs = Array.from(d.querySelectorAll('img'));
-                                                let googleImgs = imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent')));
-                                                return googleImgs.length > 2;
+                                            if ((style.overflowY === 'auto' || style.overflowY === 'scroll')
+                                                && d.scrollHeight > d.clientHeight + 50) {
+                                                let imgs = d.querySelectorAll('img');
+                                                let hasGmaps = false;
+                                                for (let img of imgs) {
+                                                    let s = img.src || img.getAttribute('data-src') || '';
+                                                    if (s.includes('googleusercontent') || s.includes('ggpht')) {
+                                                        hasGmaps = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (hasGmaps || imgs.length > 5) {
+                                                    d.scrollTop = d.scrollHeight;  // jump to bottom
+                                                    didScroll = true;
+                                                }
                                             }
-                                            return false;
-                                        });
-                                        if (container) {
-                                            container.scrollTop += 1000;
-                                        } else {
-                                            window.scrollBy(0, 1000);
                                         }
+                                        if (!didScroll) {
+                                            window.scrollBy(0, 1500);
+                                        }
+                                        return didScroll;
                                     }
                                 """)
-                                await page.wait_for_timeout(800)
+                                await page.wait_for_timeout(600)
+
+                                # Count current images
+                                cur_img_count = await page.evaluate("""
+                                    () => {
+                                        let imgs = Array.from(document.querySelectorAll('img'));
+                                        let count = 0;
+                                        for (let i of imgs) {
+                                            let s = i.src || i.getAttribute('data-src') || '';
+                                            if ((s.includes('googleusercontent') || s.includes('ggpht'))
+                                                && !s.includes('w32-h32') && !s.includes('w48-h48')
+                                                && !s.includes('w64-h64') && !s.includes('w20-h20')) {
+                                                count++;
+                                            }
+                                        }
+                                        return count;
+                                    }
+                                """)
+
+                                if cur_img_count == prev_img_count:
+                                    stale_rounds += 1
+                                    if stale_rounds >= 8:  # 8 consecutive stale rounds = done
+                                        break
+                                else:
+                                    stale_rounds = 0
+                                    prev_img_count = cur_img_count
+
                             except Exception:
                                 break
-                            # Check if new images loaded
-                            cur_count = await page.evaluate("""
-                                () => {
-                                    let imgs = Array.from(document.querySelectorAll('img'));
-                                    return imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent'))).length;
-                                }
-                            """)
-                            if cur_count == prev_count and scroll_round > 3:
-                                break  # No more images loading
-                            prev_count = cur_count
 
-                        # Also try clicking "Menu" and "Food & drink" tabs for extra images
-                        for tab_label in ["Menu", "Food"]:
+                        print(f"     [Gallery] Found {prev_img_count} raw images after scrolling")
+
+                    # --- STEP 3: Also check "Menu" and "Food" tabs ---
+                    if gallery_opened:
+                        for tab_label in ["Menu", "Food", "Videos", "By owner", "Street View"]:
                             try:
-                                tab = await page.query_selector(f'div[aria-label*="{tab_label}"]')
-                                if tab:
+                                tabs = await page.query_selector_all(
+                                    f'div[aria-label*="{tab_label}" i], button[aria-label*="{tab_label}" i]'
+                                )
+                                for tab in tabs:
                                     await tab.click()
                                     await page.wait_for_timeout(1500)
-                                    # Scroll this tab too
-                                    for _ in range(5):
+                                    # Scroll within tab
+                                    for _ in range(8):
                                         await page.evaluate("""
                                             () => {
                                                 let divs = Array.from(document.querySelectorAll('div'));
-                                                let c = divs.find(d => {
+                                                for (let d of divs) {
                                                     let style = window.getComputedStyle(d);
-                                                    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
-                                                        let imgs = Array.from(d.querySelectorAll('img'));
-                                                        let googleImgs = imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent')));
-                                                        return googleImgs.length > 2;
+                                                    if ((style.overflowY === 'auto' || style.overflowY === 'scroll')
+                                                        && d.scrollHeight > d.clientHeight + 50) {
+                                                        d.scrollTop = d.scrollHeight;
+                                                        return;
                                                     }
-                                                    return false;
-                                                });
-                                                if (c) {
-                                                    c.scrollTop += 1000;
-                                                } else {
-                                                    window.scrollBy(0, 1000);
                                                 }
+                                                window.scrollBy(0, 1000);
                                             }
                                         """)
-                                        await page.wait_for_timeout(600)
+                                        await page.wait_for_timeout(400)
+                                    break  # only click first matching tab
                             except Exception:
                                 pass
 
-                        # Click back to "All" tab
+                        # Go back to "All" tab
                         try:
-                            all_tab = await page.query_selector('div[aria-label*="All"]')
+                            all_tab = await page.query_selector(
+                                'div[aria-label*="All" i], button[aria-label*="All" i]'
+                            )
                             if all_tab:
                                 await all_tab.click()
-                                await page.wait_for_timeout(500)
+                                await page.wait_for_timeout(800)
                         except Exception:
                             pass
 
-                # Now grab all googleusercontent images from the page
+                # --- STEP 4: Extract ALL image URLs ---
                 all_imgs = await page.evaluate("""
                     () => {
-                        let imgs = Array.from(document.querySelectorAll('img'));
-                        return imgs.map(i => i.getAttribute('data-src') || i.src)
-                            .filter(s => 
-                                s && 
-                                s.includes('googleusercontent') && 
-                                !s.includes('w32-h32') && 
-                                !s.includes('p-k-no') &&
-                                !s.includes('w48-h48') &&
-                                !s.includes('w64-h64') &&
-                                !s.includes('w20-h20') &&
-                                !s.includes('w34-h34') &&
-                                !s.includes('w200-h200')
-                            );
+                        let results = [];
+                        // Regular img tags
+                        document.querySelectorAll('img').forEach(function(img) {
+                            let s = img.getAttribute('data-src') || img.src || '';
+                            if (s && (s.includes('googleusercontent') || s.includes('ggpht'))) {
+                                results.push(s);
+                            }
+                        });
+                        // Background images
+                        document.querySelectorAll('[style*="googleusercontent"], [style*="ggpht"]').forEach(function(el) {
+                            let style = el.getAttribute('style') || '';
+                            let matches = style.match_all
+                                ? Array.from(style.matchAll(/url\\("?([^"')]+(?:googleusercontent|ggpht)[^"')]+)"?\\)/g))
+                                : [];
+                            matches.forEach(function(m) { results.push(m[1]); });
+                        });
+                        // Also check srcset
+                        document.querySelectorAll('img[srcset]').forEach(function(img) {
+                            let srcset = img.getAttribute('srcset') || '';
+                            srcset.split(',').forEach(function(part) {
+                                let url = part.trim().split(' ')[0];
+                                if (url && (url.includes('googleusercontent') || url.includes('ggpht'))) {
+                                    results.push(url);
+                                }
+                            });
+                        });
+                        return results;
                     }
                 """)
 
-                # Also try background-image style elements (gallery thumbnails)
-                try:
-                    bg_imgs = await page.evaluate("""
-                        () => {
-                            var results = [];
-                            var elements = document.querySelectorAll('[style*="googleusercontent"]');
-                            elements.forEach(function(el) {
-                                var style = el.getAttribute('style') || '';
-                                var match = style.match(/url\\("?(https?:\\/\\/[^"')]+googleusercontent[^"')]+)"?\\)/);
-                                if (match) results.push(match[1]);
-                            });
-                            return results;
-                        }
-                    """)
-                    all_imgs = all_imgs + bg_imgs
-                except Exception:
-                    pass
+                print(f"     [Gallery] Total raw image URLs collected: {len(all_imgs)}")
 
+                # --- STEP 5: Deduplicate and filter ---
                 for src in all_imgs:
                     if len(image_urls) >= max_photos:
                         break
+                    # Skip tiny thumbnails
+                    if any(sz in src for sz in [
+                        'w32-h32', 'w48-h48', 'w64-h64', 'w20-h20',
+                        'w34-h34', 'w200-h200', 'w16-h16', 'w24-h24',
+                        'p-k-no', 'w40-h40', 'w56-h56'
+                    ]):
+                        continue
+                    # Skip avatar/profile images
+                    if '/a/' in src and '=s' in src:
+                        continue
                     base = canonical_img_url(src)
-                    if base not in seen_canonical and is_large_img(src):
+                    if base not in seen_canonical:
                         seen_canonical.add(base)
-                        # Force large resolution — strip thumbnail params and add large size
                         large_url = base + "=w1200-h900"
                         image_urls.append(large_url)
 
-                # If gallery was opened, go back to place detail page
-                if max_photos > 1 and len(image_urls) > 0:
+                # Go back from gallery if we opened it
+                if max_photos > 1 and gallery_opened and len(image_urls) > 0:
                     try:
-                        await page.go_back(wait_until="domcontentloaded", timeout=10000)
+                        # Press Escape or click close button instead of go_back (safer)
+                        await page.keyboard.press("Escape")
                         await page.wait_for_timeout(1000)
                     except Exception:
                         pass
