@@ -471,9 +471,12 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                         let divs = Array.from(document.querySelectorAll('div'));
                                         let container = divs.find(d => {
                                             let style = window.getComputedStyle(d);
-                                            return (style.overflowY === 'auto' || style.overflowY === 'scroll') 
-                                                && d.scrollHeight > d.clientHeight 
-                                                && d.querySelectorAll('img[src*="googleusercontent"]').length > 2;
+                                            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
+                                                let imgs = Array.from(d.querySelectorAll('img'));
+                                                let googleImgs = imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent')));
+                                                return googleImgs.length > 2;
+                                            }
+                                            return false;
                                         });
                                         if (container) {
                                             container.scrollTop += 1000;
@@ -487,7 +490,10 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                 break
                             # Check if new images loaded
                             cur_count = await page.evaluate("""
-                                () => document.querySelectorAll('img[src*="googleusercontent"]').length
+                                () => {
+                                    let imgs = Array.from(document.querySelectorAll('img'));
+                                    return imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent'))).length;
+                                }
                             """)
                             if cur_count == prev_count and scroll_round > 3:
                                 break  # No more images loading
@@ -507,9 +513,12 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                                 let divs = Array.from(document.querySelectorAll('div'));
                                                 let c = divs.find(d => {
                                                     let style = window.getComputedStyle(d);
-                                                    return (style.overflowY === 'auto' || style.overflowY === 'scroll') 
-                                                        && d.scrollHeight > d.clientHeight 
-                                                        && d.querySelectorAll('img[src*="googleusercontent"]').length > 2;
+                                                    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
+                                                        let imgs = Array.from(d.querySelectorAll('img'));
+                                                        let googleImgs = imgs.filter(i => (i.src && i.src.includes('googleusercontent')) || (i.getAttribute('data-src') && i.getAttribute('data-src').includes('googleusercontent')));
+                                                        return googleImgs.length > 2;
+                                                    }
+                                                    return false;
                                                 });
                                                 if (c) {
                                                     c.scrollTop += 1000;
