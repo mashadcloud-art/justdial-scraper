@@ -494,10 +494,10 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                             let style = window.getComputedStyle(d);
                                             if ((style.overflowY === 'auto' || style.overflowY === 'scroll')
                                                 && d.scrollHeight > d.clientHeight + 50) {
-                                                let imgs = d.querySelectorAll('img');
+                                                let imgs = d.querySelectorAll('img, [data-src]');
                                                 let hasGmaps = false;
                                                 for (let img of imgs) {
-                                                    let s = img.src || img.getAttribute('data-src') || '';
+                                                    let s = img.src || img.getAttribute('data-src') || img.getAttribute('src') || '';
                                                     if (s.includes('googleusercontent') || s.includes('ggpht')) {
                                                         hasGmaps = true;
                                                         break;
@@ -520,10 +520,10 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                 # Count current images
                                 cur_img_count = await page.evaluate("""
                                     () => {
-                                        let imgs = Array.from(document.querySelectorAll('img'));
+                                        let imgs = Array.from(document.querySelectorAll('img, [data-src]'));
                                         let count = 0;
                                         for (let i of imgs) {
-                                            let s = i.src || i.getAttribute('data-src') || '';
+                                            let s = i.src || i.getAttribute('data-src') || i.getAttribute('src') || '';
                                             if ((s.includes('googleusercontent') || s.includes('ggpht'))
                                                 && !s.includes('w32-h32') && !s.includes('w48-h48')
                                                 && !s.includes('w64-h64') && !s.includes('w20-h20')) {
@@ -593,9 +593,9 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 all_imgs = await page.evaluate("""
                     () => {
                         let results = [];
-                        // Regular img tags
-                        document.querySelectorAll('img').forEach(function(img) {
-                            let s = img.getAttribute('data-src') || img.src || '';
+                        // Elements with data-src or src (like div.U39Pmb or img tags)
+                        document.querySelectorAll('img, [data-src]').forEach(function(el) {
+                            let s = el.getAttribute('data-src') || el.src || el.getAttribute('src') || '';
                             if (s && (s.includes('googleusercontent') || s.includes('ggpht'))) {
                                 results.push(s);
                             }
