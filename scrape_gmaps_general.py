@@ -533,19 +533,21 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
 
                 # Now grab all googleusercontent images from the page
                 all_imgs = await page.evaluate("""
-                    () => Array.from(document.querySelectorAll('img'))
-                        .map(i => i.src)
-                        .filter(s => 
-                            s && 
-                            s.includes('googleusercontent') && 
-                            !s.includes('w32-h32') && 
-                            !s.includes('p-k-no') &&
-                            !s.includes('w48-h48') &&
-                            !s.includes('w64-h64') &&
-                            !s.includes('w20-h20') &&
-                            !s.includes('w34-h34') &&
-                            !s.includes('w200-h200')
-                        );
+                    () => {
+                        let imgs = Array.from(document.querySelectorAll('img'));
+                        return imgs.map(i => i.getAttribute('data-src') || i.src)
+                            .filter(s => 
+                                s && 
+                                s.includes('googleusercontent') && 
+                                !s.includes('w32-h32') && 
+                                !s.includes('p-k-no') &&
+                                !s.includes('w48-h48') &&
+                                !s.includes('w64-h64') &&
+                                !s.includes('w20-h20') &&
+                                !s.includes('w34-h34') &&
+                                !s.includes('w200-h200')
+                            );
+                    }
                 """)
 
                 # Also try background-image style elements (gallery thumbnails)
