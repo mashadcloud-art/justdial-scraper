@@ -6,7 +6,7 @@ import requests
 import os
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-from playwright_stealth import Stealth
+from playwright_stealth import stealth
 
 logger = logging.getLogger(__name__)
 

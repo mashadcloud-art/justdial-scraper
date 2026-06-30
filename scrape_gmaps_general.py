@@ -444,6 +444,9 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                         "div[jsaction*='heroHeaderImage']",
                         "button.aoRNLd",
                         "div.RZ66Rb",
+                        "button[aria-label*='photo' i]",
+                        "button[aria-label*='Photo']",
+                        "div[role='button']:has(img)"
                     ]
                     for sel in gallery_selectors:
                         try:

@@ -56,3 +56,69 @@ def get_cities_to_scrape(state: str, district: str) -> list[str]:
         cities_to_scrape.append(district)
         
     return cities_to_scrape
+
+
+def get_areas_for_district(district_name: str) -> list[str]:
+    """
+    Returns a list of key commercial areas and sub-districts/towns for a given district
+    to allow localized and comprehensive category searches.
+    """
+    mapping = {
+        "thrissur": [
+            "Thrissur", "Chavakkad", "Irinjalakuda", "Kunnamkulam", 
+            "Guruvayur", "Kodungallur", "Chalakudy", "Wadakkanchery", 
+            "Triprayar", "Mannuthy", "Viyyur", "Olarikkara"
+        ],
+        "ernakulam": [
+            "Willingdon Island", "Bolgatty", "Vypeen", "Chottanikkara", 
+            "Koothattukulam", "Kolenchery", "Kizhakkambalam", "Pothanicad", 
+            "Maradu", "Cheranallur", "Eloor", "Thammanam", "Poonithura", 
+            "Vennala", "Kumbalam", "Kundannoor"
+        ],
+        "thiruvananthapuram": [
+            "Thiruvananthapuram", "Neyyattinkara", "Attingal", "Nedumangad", 
+            "Varkala", "Kazhakkoottam", "Kovalam", "Kilimanoor"
+        ],
+        "kozhikode": [
+            "Kozhikode", "Vadakara", "Koyilandy", "Thamarassery", 
+            "Balussery", "Feroke", "Kunnamangalam", "Ramanattukara"
+        ],
+        "kannur": [
+            "Kannur", "Thalassery", "Payyannur", "Taliparamba", 
+            "Iritty", "Kuthuparamba", "Mattannur"
+        ]
+    }
+    
+    key = district_name.lower().strip()
+    return mapping.get(key, [district_name])
+
+
+MAPPED_SUBCATEGORIES = {
+    "Hotels & Restaurants": [
+        "Bakeries", "Banquet Halls", "Burger Joints", "Caterers", "Diet Food Restaurants", 
+        "Fried Chicken Delivery Restaurants", "Fried Chicken Restaurants", "Grill Restaurants", 
+        "Halal Restaurants", "Home Delivery Restaurants", "Hotels", "Indian Restaurants", 
+        "Inexpensive Restaurants Below Rs 500", "Kebab Restaurants", "Mandi Restaurants", 
+        "Moderate Restaurants Rs 500 To Rs 1000", "Restaurants", "Sandwich Stalls", "Sweet Shops", 
+        "Yemeni Restaurants"
+    ],
+    "Restaurants": [
+        "Bakeries", "Burger Joints", "Caterers", "Diet Food Restaurants", 
+        "Fried Chicken Restaurants", "Grill Restaurants", "Halal Restaurants", 
+        "Home Delivery Restaurants", "Indian Restaurants", "Inexpensive Restaurants Below Rs 500", 
+        "Kebab Restaurants", "Mandi Restaurants", "Moderate Restaurants Rs 500 To Rs 1000", 
+        "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants"
+    ]
+}
+
+def get_subcategories_for_main(main_category: str) -> list[str]:
+    """
+    Returns a list of specific subcategory terms under a parent group
+    to allow detailed batch category scans.
+    """
+    key = main_category.strip()
+    # Normalize common queries
+    if key.lower() == "restaurants":
+        return MAPPED_SUBCATEGORIES.get("Restaurants")
+    return MAPPED_SUBCATEGORIES.get(key, [])
+
