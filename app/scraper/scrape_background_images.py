@@ -209,38 +209,66 @@ async def main(target_category=None):
                     print("  -> Scraping gallery...")
                     new_image_urls = await scrape_gallery_images(page, max_photos=50)
                     
-                    if new_image_urls:
-                        print(f"  -> Extracted {len(new_image_urls)} new images! Saving to DB...")
-                        existing_urls = {img.image_path for img in listing.images}
-                        
-                        for img_url in new_image_urls:
-                            if img_url not in existing_urls:
-                                db.add(models.ListingImage(
-                                    listing_id=listing.id,
-                                    image_path=img_url,
-                                    category="general",
-                                    is_primary=False
-                                ))
-                                existing_urls.add(img_url)
-                                
-                        db.commit()
-                        print("  -> Saved!")
-                    else:
-                        print("  -> No new images found.")
-                        # To prevent infinite loop if a place really has 0 photos, we add a dummy image so count > 1
-                        db.add(models.ListingImage(
-                            listing_id=listing.id,
-                            image_path="NO_IMAGES_FOUND_FLAG",
-                            category="system",
-                            is_primary=False
-                        ))
-                        db.commit()
+                    try:
+                        if new_image_urls:
+                            print(f"  -> Extracted {len(new_image_urls)} new images! Saving to DB...")
+                            existing_urls = {img.image_path for img in listing.images}
+                            
+                            for img_url in new_image_urls:
+                                if img_url not in existing_urls:
+                                    db.add(models.ListingImage(
+                                        listing_id=listing.id,
+                                        image_path=img_url,
+                                        category="general",
+                                        is_primary=False
+                                    ))
+                                    existing_urls.add(img_url)
+                                    
+                            db.commit()
+                            print("  -> Saved!")
+                        else:
+                            print("  -> No new images found.")
+                            # To prevent infinite loop if a place really has 0 photos, we add a dummy image so count > 1
+                            db.add(models.ListingImage(
+                                listing_id=listing.id,
+                                image_path="NO_IMAGES_FOUND_FLAG",
+                                category="system",
+                                is_primary=False
+                            ))
+                            db.commit()
+                            print("  -> Saved!")
+                    except Exception as db_err:
+                        print(f"  -> [DB ERROR] Commit failed: {db_err}")
+                        try:
+                            db.rollback()
+                        except:
+                            pass
+                        try:
+                            db.close()
+                        except:
+                            pass
+                        db = SessionLocal()
                         
                 except Exception as e:
                     print(f"  -> [CRASH] Error parsing {listing.name}: {e}")
-                    # To prevent getting stuck on crashing places, flag it
-                    db.add(models.ListingImage(listing_id=listing.id, image_path="CRASH_FLAG", category="system", is_primary=False))
-                    db.commit()
+                    try:
+                        db.rollback()
+                    except:
+                        pass
+                    
+                    try:
+                        # Re-open session in case of connection drop
+                        db.close()
+                        db = SessionLocal()
+                        db.add(models.ListingImage(listing_id=listing.id, image_path="CRASH_FLAG", category="system", is_primary=False))
+                        db.commit()
+                        print("  -> Crash flag saved to DB.")
+                    except Exception as db_err:
+                        print(f"  -> [DB ERROR] Could not save crash flag: {db_err}")
+                        try:
+                            db.rollback()
+                        except:
+                            pass
                     
                     try:
                         await page.close()
