@@ -203,7 +203,11 @@ async def main(target_category=None, target_district=None):
             for idx, listing in enumerate(target_listings):
                 listing_id_val = listing.id
                 listing_name_val = listing.name
-                print(f"\n[{idx+1}/{len(target_listings)}] Processing {listing_name_val}...")
+                try:
+                    print(f"\n[{idx+1}/{len(target_listings)}] Processing {listing_name_val}...")
+                except Exception:
+                    safe_name = listing_name_val.encode('ascii', 'ignore').decode('ascii')
+                    print(f"\n[{idx+1}/{len(target_listings)}] Processing {safe_name}...")
                 
                 url = listing.jd_url + "&hl=en" if "?" in listing.jd_url else listing.jd_url + "?hl=en"
                 
@@ -257,7 +261,11 @@ async def main(target_category=None, target_district=None):
                         db = SessionLocal()
                         
                 except Exception as e:
-                    print(f"  -> [CRASH] Error parsing {listing_name_val}: {e}")
+                    try:
+                        print(f"  -> [CRASH] Error parsing {listing_name_val}: {e}")
+                    except Exception:
+                        safe_name = listing_name_val.encode('ascii', 'ignore').decode('ascii')
+                        print(f"  -> [CRASH] Error parsing {safe_name}: {e}")
                     try:
                         db.rollback()
                     except:
