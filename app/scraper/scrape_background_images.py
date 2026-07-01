@@ -149,11 +149,13 @@ async def scrape_gallery_images(page, max_photos=50):
         
     return list(image_urls)
 
-async def main(target_category=None):
+async def main(target_category=None, target_district=None):
     print("=" * 60)
     print("GOOGLE MAPS BACKGROUND DEEP IMAGE SCRAPER (DAEMON MODE)")
     if target_category:
         print(f"Targeting only category: '{target_category}'")
+    if target_district:
+        print(f"Targeting only district: '{target_district}'")
     print("=" * 60)
     print("Running continuously. Will auto-shutdown after 2 minutes of no new listings...")
     
@@ -179,6 +181,9 @@ async def main(target_category=None):
             
             if target_category:
                 query = query.filter(models.Listing.category == target_category)
+                
+            if target_district:
+                query = query.filter(models.Listing.district.ilike(f"%{target_district}%"))
                 
             listings = query.options(joinedload(models.Listing.images)).all()
             
@@ -286,6 +291,7 @@ async def main(target_category=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Background Deep Image Scraper")
     parser.add_argument("--category", type=str, default=None, help="Target a specific category (e.g. 'Pharmacies')")
+    parser.add_argument("--district", type=str, default=None, help="Target a specific district (e.g. 'Kasaragod')")
     args = parser.parse_args()
     
-    asyncio.run(main(target_category=args.category))
+    asyncio.run(main(target_category=args.category, target_district=args.district))
