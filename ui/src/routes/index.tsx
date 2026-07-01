@@ -2905,6 +2905,18 @@ function Dashboard() {
                             <td className="p-3" onClick={(e) => e.stopPropagation()}><Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleRow(r.id)} /></td>
                             <td className="p-3 font-medium">
                               <span className="hover:text-brand transition-colors">{r.name}</span>
+                              {r.amenities && r.amenities.some(a => a.category === "Tag") && (
+                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                  {r.amenities
+                                    .filter(a => a.category === "Tag")
+                                    .map((t, idx) => (
+                                      <span key={idx} className="px-1 py-0.2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold rounded">
+                                        {t.value}
+                                      </span>
+                                    ))
+                                  }
+                                </div>
+                              )}
                               {searchQuery && r.amenities && r.amenities
                                 .filter(a => a.category === "ACCA Professional" && a.value.toLowerCase().includes(searchQuery.toLowerCase()))
                                 .map((p, idx) => {
@@ -3244,6 +3256,18 @@ function DetailView({ business: b, onClose, onViewImages }: { business: Business
                 <span className="px-2.5 py-0.5 bg-muted text-muted-foreground text-xs font-bold uppercase rounded-full">{b.subcategory}</span>
               )}
             </div>
+            {b.amenities && b.amenities.some(a => a.category === "Tag") && (
+              <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                {b.amenities
+                  .filter(a => a.category === "Tag")
+                  .map((t, idx) => (
+                    <span key={idx} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-extrabold uppercase rounded">
+                      #{t.value}
+                    </span>
+                  ))
+                }
+              </div>
+            )}
           </div>
           <Button variant="destructive" size="sm" onClick={onClose} className="h-8 shrink-0">
             <X className="size-3.5 mr-1.5" />Close
