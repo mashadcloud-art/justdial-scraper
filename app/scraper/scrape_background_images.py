@@ -201,7 +201,9 @@ async def main(target_category=None, target_district=None):
             print(f"Found {len(target_listings)} listings that need deep image scraping.")
             
             for idx, listing in enumerate(target_listings):
-                print(f"\n[{idx+1}/{len(target_listings)}] Processing {listing.name}...")
+                listing_id_val = listing.id
+                listing_name_val = listing.name
+                print(f"\n[{idx+1}/{len(target_listings)}] Processing {listing_name_val}...")
                 
                 url = listing.jd_url + "&hl=en" if "?" in listing.jd_url else listing.jd_url + "?hl=en"
                 
@@ -222,7 +224,7 @@ async def main(target_category=None, target_district=None):
                             for img_url in new_image_urls:
                                 if img_url not in existing_urls:
                                     db.add(models.ListingImage(
-                                        listing_id=listing.id,
+                                        listing_id=listing_id_val,
                                         image_path=img_url,
                                         category="general",
                                         is_primary=False
@@ -235,7 +237,7 @@ async def main(target_category=None, target_district=None):
                             print("  -> No new images found.")
                             # To prevent infinite loop if a place really has 0 photos, we add a dummy image so count > 1
                             db.add(models.ListingImage(
-                                listing_id=listing.id,
+                                listing_id=listing_id_val,
                                 image_path="NO_IMAGES_FOUND_FLAG",
                                 category="system",
                                 is_primary=False
@@ -255,7 +257,7 @@ async def main(target_category=None, target_district=None):
                         db = SessionLocal()
                         
                 except Exception as e:
-                    print(f"  -> [CRASH] Error parsing {listing.name}: {e}")
+                    print(f"  -> [CRASH] Error parsing {listing_name_val}: {e}")
                     try:
                         db.rollback()
                     except:
@@ -265,7 +267,7 @@ async def main(target_category=None, target_district=None):
                         # Re-open session in case of connection drop
                         db.close()
                         db = SessionLocal()
-                        db.add(models.ListingImage(listing_id=listing.id, image_path="CRASH_FLAG", category="system", is_primary=False))
+                        db.add(models.ListingImage(listing_id=listing_id_val, image_path="CRASH_FLAG", category="system", is_primary=False))
                         db.commit()
                         print("  -> Crash flag saved to DB.")
                     except Exception as db_err:
