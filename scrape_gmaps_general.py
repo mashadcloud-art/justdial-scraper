@@ -979,6 +979,7 @@ async def main():
     parser.add_argument("--max-photos", type=int, default=1, help="Max photos to extract per place (default: 1)")
     parser.add_argument("--live", action="store_true", help="Write changes directly to database")
     parser.add_argument("--start-pin-index", type=int, default=0, help="Pincode index to start scraping from (0-based)")
+    parser.add_argument("--force", action="store_true", help="Force re-scrape of already scraped pincodes in DB")
     args = parser.parse_args()
     
     db = SessionLocal()
@@ -1060,8 +1061,8 @@ async def main():
         processed_urls = set()
         skipped_count = 0
         for index, pin in enumerate(pincodes):
-            # Skip if pincode already scraped in DB
-            if pin in scraped_pincodes:
+            # Skip if pincode already scraped in DB (unless --force is passed)
+            if pin in scraped_pincodes and not args.force:
                 skipped_count += 1
                 print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} --- SKIPPED (already in DB)")
                 continue
