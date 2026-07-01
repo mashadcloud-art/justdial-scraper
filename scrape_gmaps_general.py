@@ -361,9 +361,36 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 if rev_match:
                     reviews_count = rev_match.group(1).replace(",", "")
             
-            # Extract Subcategory/Category type
-            subcat_el = await page.query_selector("button[class*='D7m2K']")
-            subcategory = await subcat_el.inner_text() if subcat_el else category_name
+            # Extract Subcategory/Category type (Robust Evaluator)
+            subcategory = category_name
+            try:
+                subcategory = await page.evaluate("""
+                    () => {
+                        // 1. Primary selector
+                        let el = document.querySelector('button[jsaction*="category"], [data-item-id="category"], button.D7m2K');
+                        if (el && el.innerText.trim()) return el.innerText.trim();
+                        
+                        // 2. Fallback: parent rating container search
+                        let ratingContainer = document.querySelector('div.F7nice');
+                        if (ratingContainer) {
+                            let parent = ratingContainer.parentElement;
+                            if (parent) {
+                                let buttons = Array.from(parent.querySelectorAll('button'));
+                                for (let btn of buttons) {
+                                    let txt = btn.innerText.trim();
+                                    if (txt && txt.length > 2 && !txt.includes('(') && !txt.includes(')') && isNaN(txt.replace('.', ''))) {
+                                        return txt;
+                                    }
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                """)
+                if not subcategory:
+                    subcategory = category_name
+            except Exception:
+                subcategory = category_name
             
             # Extract Address
             addr_el = await page.query_selector("button[data-item-id='address'] div.Io6YTe")
@@ -711,7 +738,11 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             })
             if processed_urls is not None:
                 processed_urls.add(place_url)
-            print(f"     [OK] {name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
+            try:
+                print(f"     [OK] {name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
+            except Exception:
+                safe_name = name.encode('ascii', 'ignore').decode('ascii')
+                print(f"     [OK] {safe_name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
             
             # Immediately save and commit this listing to the database
             if db is not None:
@@ -735,10 +766,9 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
         # Check by exact Google Maps URL first
         existing = db.query(models.Listing).filter(models.Listing.jd_url == h["place_url"]).first()
         
-        # Or check by name + district coordinates fuzzy match
+        # Or check by name + district coordinates fuzzy match (ignore category to allow dynamic updates)
         if not existing and h["latitude"] and h["longitude"]:
             existing = db.query(models.Listing).filter(
-                models.Listing.category == category_name,
                 models.Listing.district == district,
                 models.Listing.name.ilike(h["name"])
             ).first()
@@ -746,6 +776,13 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
         if existing:
             # Match found: enrich existing coordinates and details if empty
             updated = False
+            
+            # Dynamic Category Update: Overwrite generic category with exact Google category if available
+            actual_cat = h.get("subcategory") or category_name
+            if existing.category == category_name and actual_cat != category_name:
+                existing.category = actual_cat
+                updated = True
+                
             if (not existing.latitude or existing.latitude.strip() == "") and h["latitude"]:
                 existing.latitude = str(h["latitude"])
                 updated = True
@@ -779,8 +816,35 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
             for svc in h.get("service_attrs", []):
                 new_amenities.append(("Service", svc))
                 
+            # Tag Extraction from Name and Subcategory
+            name_lower = h["name"].lower()
+            sub_lower = (h.get("subcategory") or "").lower()
+            tag_keywords = {
+                "CA": [" ca ", "ca exam", "chartered accountant", "chartered accountants"],
+                "ACCA": ["acca"],
+                "CMA": ["cma"],
+                "CS": [" cs ", "company secretary"],
+                "GST": ["gst"],
+                "Tax": ["income tax", "taxation", "tax consultant", "tax solution", "tax solutions"],
+                "Coaching": ["coaching", "tuition", "academy", "entrance", "campus"],
+                "Tally": ["tally"],
+                "SAP": ["sap"],
+                "Computer": ["computer", "software", "it training", "coding", "programming"]
+            }
+            for tag, kw_list in tag_keywords.items():
+                for kw in kw_list:
+                    if kw in f" {name_lower} " or kw in sub_lower:
+                        new_amenities.append(("Tag", tag))
+                        break
+                
             for cat, val in new_amenities:
-                if cat not in existing_amenities and live:
+                # Avoid duplicate amenities
+                is_duplicate = db.query(models.Amenity).filter(
+                    models.Amenity.listing_id == existing.id,
+                    models.Amenity.category == cat,
+                    models.Amenity.value == val
+                ).first() is not None
+                if not is_duplicate and live:
                     db.add(models.Amenity(
                         listing_id=existing.id,
                         category=cat,
@@ -813,13 +877,14 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
         else:
             # Create new listing
             if live:
+                actual_cat = h.get("subcategory") or category_name
                 new_listing = models.Listing(
                     name=h["name"],
                     address=h["address"],
                     phone=h["phone"],
                     whatsapp="",
                     jd_url=h["place_url"],
-                    category=category_name,
+                    category=actual_cat,
                     subcategory=h["subcategory"],
                     normalized_category=normalized_category,
                     opening_hours=h.get("opening_hours", "Regular Hours"),
@@ -846,6 +911,28 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
                     amenities_to_add.append(("Menu Link", h["menu_url"]))
                 for svc in h.get("service_attrs", []):
                     amenities_to_add.append(("Service", svc))
+                    
+                # Tag Extraction from Name and Subcategory
+                name_lower = h["name"].lower()
+                sub_lower = (h.get("subcategory") or "").lower()
+                tag_keywords = {
+                    "CA": [" ca ", "ca exam", "chartered accountant", "chartered accountants"],
+                    "ACCA": ["acca"],
+                    "CMA": ["cma"],
+                    "CS": [" cs ", "company secretary"],
+                    "GST": ["gst"],
+                    "Tax": ["income tax", "taxation", "tax consultant", "tax solution", "tax solutions"],
+                    "Coaching": ["coaching", "tuition", "academy", "entrance", "campus"],
+                    "Tally": ["tally"],
+                    "SAP": ["sap"],
+                    "Computer": ["computer", "software", "it training", "coding", "programming"]
+                }
+                for tag, kw_list in tag_keywords.items():
+                    for kw in kw_list:
+                        if kw in f" {name_lower} " or kw in sub_lower:
+                            amenities_to_add.append(("Tag", tag))
+                            break
+                            
                 for cat, val in amenities_to_add:
                     db.add(models.Amenity(
                         listing_id=new_listing.id,
