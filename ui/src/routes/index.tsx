@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   Activity,
   AppWindow,
+  BarChart,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -84,7 +85,7 @@ type Business = {
   amenities: { category: string; value: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | { type: "detail"; business: Business };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
 
@@ -239,6 +240,7 @@ function Dashboard() {
   const [subcategory, setSubcategory] = useState("Fast Food");
   const [maxEntries, setMaxEntries] = useState(10);
   const [fastMode, setFastMode] = useState(false);
+  const [cliCommand, setCliCommand] = useState("python jd_api_scraper.py --district Kozhikode --category \"Hotels & Restaurants\" --subcategories --pages 5 --limit 100");
   const [singleUrl, setSingleUrl] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [listingCount, setListingCount] = useState<string | null>(null);
@@ -475,9 +477,14 @@ function Dashboard() {
   // Stats
   const [statsTotal, setStatsTotal] = useState(0);
   const [statsImages, setStatsImages] = useState(0);
+  
+  // Coverage
+  const [coverageData, setCoverageData] = useState<Record<string, Record<string, number>>>({});
+  const [loadingCoverage, setLoadingCoverage] = useState(false);
 
   useEffect(() => {
     fetchStats();
+    fetchCoverage();
     fetchRestaurants();
     fetchAdbDevices();
 
@@ -547,6 +554,21 @@ function Dashboard() {
         setStatsImages(data.total_images ?? 0);
       }
     } catch { /* backend not ready yet */ }
+  }
+
+  async function fetchCoverage() {
+    try {
+      setLoadingCoverage(true);
+      const res = await fetch(`${API}/coverage`);
+      if (res.ok) {
+        const data = await res.json();
+        setCoverageData(data.coverage || {});
+      }
+    } catch { 
+      /* backend not ready yet */ 
+    } finally {
+      setLoadingCoverage(false);
+    }
   }
 
   function getImageUrl(p: string) {
@@ -837,6 +859,69 @@ function Dashboard() {
       }
     } catch (e: any) {
       addLog(false, `Connection error starting scraper: ${e.message}`);
+      setRunning(false);
+      setStatus("Stopped");
+    }
+  }
+
+  async function runCliCommand() {
+    if (running) return;
+    if (!cliCommand.trim()) {
+      toast.error("Please enter a command to run.");
+      return;
+    }
+    setRunning(true);
+    setStatus("Scraping...");
+    setProgress(15);
+    addLog(true, `Executing CLI Command...`);
+    
+    try {
+      const res = await fetch(`${API}/scrape/cli`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: cliCommand })
+      });
+      if (res.ok) {
+        addLog(true, "CLI Scraper successfully submitted to backend. Running...");
+        setProgress(35);
+        
+        let localProgress = 35;
+        let lastIdx = 0;
+        const intervalId = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${API}/scrape/status?last_idx=${lastIdx}`);
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.logs && statusData.logs.length > 0) {
+                setLog((l) => [...l, ...statusData.logs]);
+                lastIdx = statusData.next_idx;
+              }
+              if (statusData.running === false) {
+                clearInterval(intervalId);
+                setProgress(100);
+                setRunning(false);
+                setStatus("Complete");
+                toast.success("CLI Scrape complete");
+                await fetchRestaurants();
+                await fetchStats();
+                setActiveTab("dashboard");
+              } else {
+                localProgress = Math.min(localProgress + 5, 90);
+                setProgress(localProgress);
+                await fetchStats();
+              }
+            }
+          } catch (err) { }
+        }, 1500);
+        timerRef.current = intervalId;
+      } else {
+        const err = await res.json();
+        addLog(false, `CLI Scraper failed to start: ${err.detail || err.message || JSON.stringify(err)}`);
+        setRunning(false);
+        setStatus("Stopped");
+      }
+    } catch (e: any) {
+      addLog(false, `Connection error starting CLI scraper: ${e.message}`);
       setRunning(false);
       setStatus("Stopped");
     }
@@ -1249,6 +1334,7 @@ function Dashboard() {
           <NavItem icon={<Cloud className="size-4" />}         label="Cloud Direct"    active={activeTab === "cloud_direct"} onClick={() => setActiveTab("cloud_direct")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<MapPin className="size-4" />}         label="Maps Scraper"  active={activeTab === "gmaps"}     onClick={() => setActiveTab("gmaps")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => setActiveTab("coverage")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
@@ -1330,7 +1416,7 @@ function Dashboard() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -2252,6 +2338,21 @@ function Dashboard() {
                       </select>
                     </div>
 
+                    {/* Subcategory selection */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">Subcategory</label>
+                      <select
+                        value={subcategory}
+                        onChange={(e) => setSubcategory(e.target.value)}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                      >
+                        <option value="All">All</option>
+                        {(SUBCATEGORIES[category] || []).map((sub) => (
+                          <option key={sub} value={sub}>{sub}</option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Pages limit */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">Pages limit (Per Pincode)</label>
@@ -2289,6 +2390,44 @@ function Dashboard() {
                         </Button>
                       )}
                     </div>
+                  </div>
+                </section>
+
+                {/* Power User (CLI Mode) */}
+                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Square className="size-4 text-brand" />
+                    <h3 className="text-base font-semibold">Power User (CLI Mode)</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Edit and run the raw terminal command directly for maximum control. Supports the `--subcategories` batch flag.
+                  </p>
+                  <div className="space-y-1.5 pt-2">
+                    <textarea
+                      value={cliCommand}
+                      onChange={(e) => setCliCommand(e.target.value)}
+                      className="w-full min-h-[80px] p-3 rounded-lg text-sm font-mono bg-background ring-1 ring-border outline-none focus:ring-brand resize-y"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-3">
+                    <Button
+                      onClick={runCliCommand}
+                      disabled={running}
+                      className="flex-1 h-10 bg-slate-800 hover:bg-slate-900 text-white font-medium shadow-sm text-xs"
+                    >
+                      {running && status === "Scraping..." ? "Running Command..." : "Run CLI Command"}
+                    </Button>
+                    {running && (
+                      <Button
+                        onClick={async () => {
+                          await fetch(`${API}/scrape/stop`, { method: "POST" });
+                          toast.info("Stopping CLI Scraper...");
+                        }}
+                        className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white text-xs font-medium"
+                      >
+                        Stop
+                      </Button>
+                    )}
                   </div>
                 </section>
 
@@ -2606,6 +2745,46 @@ function Dashboard() {
               />
             )}
 
+            {/* ── COVERAGE TRACKER TAB ── */}
+            {activeTab === "coverage" && (
+              <section className="rounded-xl ring-1 ring-border bg-card overflow-hidden shadow-elegant">
+                <div className="px-4 py-3 border-b border-border flex justify-between items-center">
+                  <div>
+                    <h3 className="text-base font-semibold flex items-center gap-2">
+                      <BarChart className="size-4 text-brand" />
+                      Scrape Coverage Tracker
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Total scraped listings organized by District and Category</p>
+                  </div>
+                  <Button onClick={fetchCoverage} disabled={loadingCoverage} variant="outline" size="sm" className="h-8 text-xs">
+                    <RefreshCw className={`size-3 mr-1 ${loadingCoverage ? "animate-spin" : ""}`} /> Refresh
+                  </Button>
+                </div>
+                
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto bg-muted/10">
+                  {loadingCoverage ? (
+                    <div className="col-span-full py-12 text-center text-muted-foreground animate-pulse">Loading coverage data...</div>
+                  ) : Object.keys(coverageData).length === 0 ? (
+                    <div className="col-span-full py-12 text-center text-muted-foreground">No data found in database.</div>
+                  ) : (
+                    Object.entries(coverageData).sort().map(([district, categories]) => (
+                      <div key={district} className="bg-background rounded-xl ring-1 ring-border p-4 shadow-sm">
+                        <h4 className="font-bold text-sm text-foreground border-b pb-2 mb-3">{district}</h4>
+                        <div className="space-y-2">
+                          {Object.entries(categories).sort().map(([cat, count]) => (
+                            <div key={cat} className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground truncate pr-2 flex-1" title={cat}>{cat}</span>
+                              <span className="font-mono bg-brand/10 text-brand px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* ── DASHBOARD TAB ── */}
             {activeTab === "dashboard" && (
               statsTotal === 0 ? (
@@ -2726,9 +2905,26 @@ function Dashboard() {
                             <td className="p-3" onClick={(e) => e.stopPropagation()}><Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleRow(r.id)} /></td>
                             <td className="p-3 font-medium">
                               <span className="hover:text-brand transition-colors">{r.name}</span>
+                              {searchQuery && r.amenities && r.amenities
+                                .filter(a => a.category === "ACCA Professional" && a.value.toLowerCase().includes(searchQuery.toLowerCase()))
+                                .map((p, idx) => {
+                                  const name = p.value.split(" | ")[0].replace("Name: ", "");
+                                  const achievement = p.value.split(" | ")[1].replace("Ach: ", "");
+                                  return (
+                                    <div key={idx} className="text-[10px] text-emerald-500 mt-1 font-semibold flex items-center gap-1">
+                                      🎓 {name} ({achievement})
+                                    </div>
+                                  );
+                                })
+                              }
                             </td>
                             <td className="p-3">
                               <span className="px-1.5 py-0.5 bg-brand/10 text-brand text-[9px] font-bold uppercase rounded-full">{r.category}</span>
+                              {r.subcategory && (
+                                <div className="text-[10px] text-muted-foreground mt-1 capitalize font-medium">
+                                  {r.subcategory}
+                                </div>
+                              )}
                             </td>
                             <td className="p-3 text-muted-foreground">
                               {r.location}
@@ -3042,7 +3238,12 @@ function DetailView({ business: b, onClose, onViewImages }: { business: Business
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <h2 className="text-xl font-semibold tracking-tight">{b.name}</h2>
-            <span className="inline-block mt-1.5 px-2.5 py-0.5 bg-brand/10 text-brand text-xs font-bold uppercase rounded-full">{b.category}</span>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span className="px-2.5 py-0.5 bg-brand/10 text-brand text-xs font-bold uppercase rounded-full">{b.category}</span>
+              {b.subcategory && (
+                <span className="px-2.5 py-0.5 bg-muted text-muted-foreground text-xs font-bold uppercase rounded-full">{b.subcategory}</span>
+              )}
+            </div>
           </div>
           <Button variant="destructive" size="sm" onClick={onClose} className="h-8 shrink-0">
             <X className="size-3.5 mr-1.5" />Close
