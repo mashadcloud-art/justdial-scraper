@@ -9,6 +9,9 @@ from datetime import datetime
 # Add parent directory to path if needed
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.database import SessionLocal
+from app import models
+
 API_URL = "http://127.0.0.1:8000/api/v1"
 LOG_FILE = "scraper_logs.txt"
 PYTHON_EXE = sys.executable
@@ -457,31 +460,43 @@ scrape_single_url('{manual_url}')
         with col_cloud1:
             if st.button("☁️ Send Full Scrape to Cloud", use_container_width=True):
                 # Insert a pending job into the database
-                job = models.ScraperJob(
-                    district=gmaps_district,
-                    query=gmaps_query,
-                    category=gmaps_category,
-                    normalized_category=gmaps_normalized,
-                    max_photos=gmaps_max_photos,
-                    status="pending"
-                )
-                db.add(job)
-                db.commit()
-                st.success(f"Job #{job.id} successfully sent to the Cloud! You can safely turn off your PC.")
+                db = SessionLocal()
+                try:
+                    job = models.ScraperJob(
+                        district=gmaps_district,
+                        query=gmaps_query,
+                        category=gmaps_category,
+                        normalized_category=gmaps_normalized,
+                        max_photos=gmaps_max_photos,
+                        status="pending"
+                    )
+                    db.add(job)
+                    db.commit()
+                    st.success(f"Job #{job.id} successfully sent to the Cloud! You can safely turn off your PC.")
+                except Exception as e:
+                    st.error(f"Error connecting to database: {e}")
+                finally:
+                    db.close()
         with col_cloud2:
             if st.button("🛑 Stop Cloud Job", use_container_width=True):
                 # We simply insert a generic job with status "cancel". The cloud worker will see this and kill its processes.
-                cancel_job = models.ScraperJob(
-                    district="ALL",
-                    query="CANCEL",
-                    category="CANCEL",
-                    normalized_category="CANCEL",
-                    max_photos=0,
-                    status="cancel"
-                )
-                db.add(cancel_job)
-                db.commit()
-                st.success("Sent cancel signal! The Cloud will stop scraping within 10 seconds.")
+                db = SessionLocal()
+                try:
+                    cancel_job = models.ScraperJob(
+                        district="ALL",
+                        query="CANCEL",
+                        category="CANCEL",
+                        normalized_category="CANCEL",
+                        max_photos=0,
+                        status="cancel"
+                    )
+                    db.add(cancel_job)
+                    db.commit()
+                    st.success("Sent cancel signal! The Cloud will stop scraping within 10 seconds.")
+                except Exception as e:
+                    st.error(f"Error connecting to database: {e}")
+                finally:
+                    db.close()
         st.markdown("---")
 
         if st.button("🚀 Start Google Maps Scraper", type="primary", disabled=st.session_state.is_scraping, use_container_width=True, key="start_gmaps"):
