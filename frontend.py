@@ -9,7 +9,7 @@ from datetime import datetime
 # Add parent directory to path if needed
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-API_URL = "http://localhost:8000/api/v1"
+API_URL = "http://127.0.0.1:8000/api/v1"
 LOG_FILE = "scraper_logs.txt"
 PYTHON_EXE = sys.executable
 
@@ -51,7 +51,7 @@ st.sidebar.subheader("Backend Services")
 
 backend_online = False
 try:
-    res = requests.get("http://localhost:8000/api/v1/stats", timeout=0.8)
+    res = requests.get("http://127.0.0.1:8000/api/v1/stats", timeout=5.0)
     if res.status_code == 200:
         backend_online = True
 except Exception:
@@ -59,6 +59,18 @@ except Exception:
 
 if backend_online:
     st.sidebar.success("🟢 Local Backend: Active")
+    try:
+        db_res = requests.get(f"{API_URL}/db-status", timeout=2.0)
+        if db_res.status_code == 200:
+            db_status = db_res.json()
+            if db_status.get("connected"):
+                st.sidebar.success(f"🟢 Database: Connected\n({db_status.get('type')})")
+            else:
+                st.sidebar.error("🔴 Database: Disconnected")
+        else:
+            st.sidebar.error("🔴 Database: Offline")
+    except Exception:
+        st.sidebar.error("🔴 Database: Connection Failed")
 else:
     st.sidebar.error("🔴 Local Backend: Offline")
     if st.sidebar.button("🚀 Start Local Backend"):
@@ -85,33 +97,28 @@ def get_stats():
         pass
     return {"total_restaurants": 0, "total_images": 0, "total_menu_items": 0}
 
-def get_all_restaurants():
-    """Fetch all restaurants across all pages"""
+def get_all_restaurants(limit=100):
+    """Fetch recent restaurants (limited to avoid UI freeze)"""
     all_data = []
-    page = 1
-    limit = 100
-    while True:
-        try:
-            res = requests.get(f"{API_URL}/restaurants", params={"page": page, "limit": limit}, timeout=10)
-            if res.status_code != 200:
-                break
+    try:
+        res = requests.get(f"{API_URL}/restaurants", params={"page": 1, "limit": limit}, timeout=10)
+        if res.status_code == 200:
             resp = res.json()
             if isinstance(resp, list):
-                all_data.extend(resp)
-                break
-            batch = resp.get("data", [])
-            all_data.extend(batch)
-            total = resp.get("total_count", 0)
-            if len(all_data) >= total or len(batch) < limit:
-                break
-            page += 1
-        except:
-            break
+                all_data = resp
+            else:
+                all_data = resp.get("data", [])
+    except:
+        pass
     return all_data
 
 def clear_logs():
-    if os.path.exists(LOG_FILE):
-        os.remove(LOG_FILE)
+    try:
+        # Truncate instead of delete — safe even when subprocess holds the file open
+        with open(LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write("")
+    except Exception:
+        pass
 
 def read_logs():
     if os.path.exists(LOG_FILE):
@@ -175,7 +182,7 @@ if page == "Dashboard":
                             if img_path.startswith("http://") or img_path.startswith("https://"):
                                 st.image(img_path, width=300)
                             else:
-                                st.image(f"http://localhost:8000/{img_path}", width=300)
+                                st.image(f"http://127.0.0.1:8000/{img_path}", width=300)
                     with col2:
                         st.subheader(r.get('name', 'Unknown'))
                         if r.get('phone'):
@@ -200,7 +207,7 @@ if page == "Dashboard":
                                     img_url = img_obj.get('path')
                                     if img_url:
                                         if not (img_url.startswith("http://") or img_url.startswith("https://")):
-                                            img_url = f"http://localhost:8000/{img_url}"
+                                            img_url = f"http://127.0.0.1:8000/{img_url}"
                                         cols[idx % 4].image(img_url, use_container_width=True)
         else:
             st.info("No restaurants scraped yet! Go to 'Scraper Control' to start scraping.")
@@ -310,7 +317,7 @@ elif page == "Scraper Control":
     st.divider()
     
     # Create tabs for different scraping modes
-    tab_city, tab_url, tab_gmaps, tab_scroll = st.tabs(["🏙️ City/District-Wise Scraping", "🔗 Manual URL Scraping", "🗺️ Google Maps Scraper", "📱 Manual Auto-Scroll (ADB)"])
+    tab_city, tab_url, tab_gmaps, tab_scroll, tab_custom = st.tabs(["🏙️ City/District-Wise Scraping", "🔗 Manual URL Scraping", "🗺️ Google Maps Scraper", "📱 Manual Auto-Scroll (ADB)", "💻 Custom Command Run"])
     
     # ------------------------------
     # Tab 1: City/District-Wise Scraping
@@ -438,13 +445,63 @@ scrape_single_url('{manual_url}')
             gmaps_max_photos = st.slider("Max Photos per Place", min_value=1, max_value=500, value=50)
             
         gmaps_live = st.toggle("Live Mode (Write to Supabase database)", value=False)
+        gmaps_auto_bg = st.toggle("☑️ Automatically run Background Deep Scraper too (Hybrid Mode)", value=True)
         
         st.divider()
         
+        # --- CLOUD JOB BUTTON ---
+        st.markdown("### ☁️ Cloud Automation")
+        st.info("Turn off your PC and let the Cloud handle the entire scrape.")
+        
+        col_cloud1, col_cloud2 = st.columns(2)
+        with col_cloud1:
+            if st.button("☁️ Send Full Scrape to Cloud", use_container_width=True):
+                # Insert a pending job into the database
+                job = models.ScraperJob(
+                    district=gmaps_district,
+                    query=gmaps_query,
+                    category=gmaps_category,
+                    normalized_category=gmaps_normalized,
+                    max_photos=gmaps_max_photos,
+                    status="pending"
+                )
+                db.add(job)
+                db.commit()
+                st.success(f"Job #{job.id} successfully sent to the Cloud! You can safely turn off your PC.")
+        with col_cloud2:
+            if st.button("🛑 Stop Cloud Job", use_container_width=True):
+                # We simply insert a generic job with status "cancel". The cloud worker will see this and kill its processes.
+                cancel_job = models.ScraperJob(
+                    district="ALL",
+                    query="CANCEL",
+                    category="CANCEL",
+                    normalized_category="CANCEL",
+                    max_photos=0,
+                    status="cancel"
+                )
+                db.add(cancel_job)
+                db.commit()
+                st.success("Sent cancel signal! The Cloud will stop scraping within 10 seconds.")
+        st.markdown("---")
+
         if st.button("🚀 Start Google Maps Scraper", type="primary", disabled=st.session_state.is_scraping, use_container_width=True, key="start_gmaps"):
             clear_logs()
             st.session_state.is_scraping = True
             st.session_state.scraping_mode = "gmaps"
+            
+            # Start background daemon if requested
+            if gmaps_auto_bg:
+                bg_args = [PYTHON_EXE, "-u", "app/scraper/scrape_background_images.py"]
+                if gmaps_category:
+                    bg_args.extend(["--category", gmaps_category])
+                    
+                subprocess.Popen(
+                    bg_args,
+                    stdout=open("bg_scraper_logs.txt", "w"),
+                    stderr=subprocess.STDOUT,
+                    cwd=os.path.dirname(os.path.abspath(__file__))
+                )
+                st.toast("Background Daemon started!")
             
             # Build CLI arguments
             args_list = [
@@ -465,6 +522,21 @@ scrape_single_url('{manual_url}')
             # Start process
             st.session_state.scraper_process = subprocess.Popen(
                 args_list,
+                stdout=open(LOG_FILE, "w"),
+                stderr=subprocess.STDOUT,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            st.rerun()
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🤖 Start Background Image Scraper (Hybrid Mode)", type="secondary", disabled=st.session_state.is_scraping, use_container_width=True, key="start_bg_scraper"):
+            clear_logs()
+            st.session_state.is_scraping = True
+            st.session_state.scraping_mode = "bg_images"
+            
+            # Start background scraper process
+            st.session_state.scraper_process = subprocess.Popen(
+                [PYTHON_EXE, "-u", "app/scraper/scrape_background_images.py"],
                 stdout=open(LOG_FILE, "w"),
                 stderr=subprocess.STDOUT,
                 cwd=os.path.dirname(os.path.abspath(__file__))
@@ -504,6 +576,64 @@ scrape_single_url('{manual_url}')
                 st.session_state.is_scrolling = False
                 with open(LOG_FILE, "a") as f:
                     f.write("\n🛑 Auto-scroll stopped manually from UI.\n")
+                st.rerun()
+    
+    # ------------------------------
+    # Tab 5: Custom CLI Command Run
+    # ------------------------------
+    with tab_custom:
+        st.subheader("Run Custom Command Line Scraper")
+        st.info("Directly run any scraper or script with your own arguments from your phone, tablet, or another device.")
+        
+        # User input for script
+        custom_script = st.selectbox(
+            "Select Script to Run",
+            [
+                "scrape_gmaps_general.py (Google Maps Scraper)",
+                "jd_api_scraper.py (JustDial API Scraper)",
+                "deduplicate_db.py (Database Deduplication)",
+                "clear_jithu.py (Database cleaner utility)",
+                "Custom Python script/command..."
+            ]
+        )
+        
+        # If "Custom python script/command...", allow typing script name
+        if custom_script.startswith("Custom"):
+            run_cmd = st.text_input("Full Python command", placeholder="e.g. scrape_gmaps_general.py --district Kasaragod --query \"Heal Pharmacy\" --category \"Pharmacies\" --normalized-category \"Health & Medical\" --max-photos 1000 --live")
+        else:
+            script_file = custom_script.split(" ")[0]
+            args_input = st.text_area("Arguments / Flags", value='--district Kasaragod --query "Heal Pharmacy" --category "Pharmacies" --normalized-category "Health & Medical" --max-photos 1000 --live', placeholder="e.g. --district Idukki --query \"pharmacy\" --category \"Pharmacies\" --max-photos 1000 --live")
+            run_cmd = f"{script_file} {args_input}"
+            
+        st.code(f"{PYTHON_EXE} -u {run_cmd}", language="bash")
+        
+        if st.button("🚀 Execute Custom Command", type="primary", disabled=st.session_state.is_scraping, use_container_width=True, key="run_custom_cmd"):
+            if not run_cmd.strip():
+                st.error("Command cannot be empty!")
+            else:
+                clear_logs()
+                st.session_state.is_scraping = True
+                st.session_state.scraping_mode = "custom"
+                
+                # Split args correctly handling quotes
+                import shlex
+                try:
+                    args_split = shlex.split(run_cmd)
+                except Exception as e:
+                    st.error(f"Failed to parse command arguments: {e}")
+                    st.session_state.is_scraping = False
+                    st.stop()
+                    
+                # Full arguments list
+                full_args = [PYTHON_EXE, "-u"] + args_split
+                
+                # Start process
+                st.session_state.scraper_process = subprocess.Popen(
+                    full_args,
+                    stdout=open(LOG_FILE, "w"),
+                    stderr=subprocess.STDOUT,
+                    cwd=os.path.dirname(os.path.abspath(__file__))
+                )
                 st.rerun()
     
     # ------------------------------
@@ -567,6 +697,51 @@ elif page == "Database Management":
     c1.metric("Restaurants", stats.get('total_restaurants', 0))
     c2.metric("Images", stats.get('total_images', 0))
     c3.metric("Menu Items", stats.get('total_menu_items', 0))
+
+    st.divider()
+    st.subheader("Database Configuration")
+    
+    import yaml
+    from app_config import CONFIG_FILE
+    
+    current_config = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                current_config = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+
+    db_url = current_config.get("database", {}).get("url") or ""
+    sb_url = current_config.get("supabase", {}).get("url") or ""
+    sb_key = current_config.get("supabase", {}).get("anon_key") or ""
+    
+    with st.form("db_config_form"):
+        new_db_url = st.text_input("Database Connection URL (Postgres or SQLite)", value=db_url, help="Supabase/Postgres Connection String")
+        new_sb_url = st.text_input("Supabase Project URL", value=sb_url, help="https://xxxx.supabase.co")
+        new_sb_key = st.text_input("Supabase Anon Key", value=sb_key, type="password")
+        
+        submitted = st.form_submit_button("Save & Update Database Config")
+        if submitted:
+            payload = {
+                "db_url": new_db_url,
+                "supabase_url": new_sb_url,
+                "supabase_anon_key": new_sb_key
+            }
+            try:
+                res = requests.post(f"{API_URL}/db-config", json=payload, timeout=10)
+                if res.status_code == 200:
+                    st.success("Config updated successfully! Restarting the backend server to apply changes...")
+                    try:
+                        requests.post(f"{API_URL}/system/restart", timeout=2)
+                    except Exception:
+                        pass
+                    time.sleep(3)
+                    st.rerun()
+                else:
+                    st.error(f"Failed to update config: {res.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
     st.divider()
     st.subheader("Maintenance Tools")

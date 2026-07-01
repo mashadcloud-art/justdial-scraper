@@ -49,6 +49,15 @@ All scraped data is permanently stored in a remote Supabase PostgreSQL database.
 - Segregated categories and established state/place mappings.
 - Built the foundational FastAPI backend and React frontend.
 
+### [2026-07-01] Hybrid Google Maps Cloud Job Queue
+- **Problem**: The fast local scraper could not handle 50-image extraction without crashing the PC due to OOM/Network limits.
+- **Solution**: Developed a dual-architecture.
+  1. The PC extracts fast data and 1 image (`scrape_gmaps_general.py`).
+  2. The PC/Cloud runs `scrape_background_images.py` which aggressively scrolls for up to 50 images per pharmacy.
+- **Cloud Task Queue**: Added a new `ScraperJob` table to Supabase.
+- **Remote Control**: Added "☁️ Send Full Scrape to Cloud" button in `frontend.py`. This pushes a job to Supabase.
+- **Cloud Daemon**: Created `app/scraper/cloud_job_worker.py` which runs 24/7 on Ubuntu via `nohup`, polling Supabase and launching the heavy scrapers entirely off-device, allowing the user to turn off their PC.
+
 ---
 
 ## 🛠️ Server Deployment Cheatsheet

@@ -199,4 +199,58 @@ class SchoolStaffPosition(Base):
     position_title = Column(Text, nullable=False, index=True)
     sanctioned_posts = Column(Integer, nullable=False, default=1)
     
-    school = relationship("School", back_populates="staff_positions")
+    school = relationship("School", back_populates="staff_positions")
+
+
+class ModuleConfig(Base):
+    __tablename__ = "module_configs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(String(100), unique=True, index=True)
+    is_enabled = Column(Boolean, default=False)
+    settings = Column(Text, nullable=True)  # JSON stored as text
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ScraperJob(Base):
+    __tablename__ = "scraper_jobs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    district = Column(String(100), nullable=False)
+    query = Column(String(200), nullable=False)
+    category = Column(String(200), nullable=False)
+    normalized_category = Column(String(100), nullable=False)
+    max_photos = Column(Integer, default=1)
+    status = Column(String(50), default="pending") # pending, running, completed, failed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class Course(Base):
+    __tablename__ = "courses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False, unique=True)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CourseProvider(Base):
+    __tablename__ = "course_providers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("listings.id", ondelete="CASCADE"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Professional(Base):
+    __tablename__ = "professionals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    image_url = Column(Text)
+    achievement = Column(Text)
+    tags = Column(String(500))
+    listing_id = Column(Integer, ForeignKey("listings.id", ondelete="CASCADE"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
