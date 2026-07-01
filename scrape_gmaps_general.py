@@ -197,7 +197,7 @@ async def extract_gmaps_menu(browser, place_url: str) -> list:
         
     return menu_items
 
-async def scrape_pincode_places(browser, page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None, district: str = "", normalized_category: str = "", live: bool = False):
+async def scrape_pincode_places(browser, page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None, district: str = "", normalized_category: str = "", live: bool = False, force: bool = False):
     if pincode and pincode.strip():
         search_query = f"{query} in {pincode} Kerala"
     else:
@@ -295,8 +295,8 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 print(f"  -> Skipping place {index+1}/{len(place_urls)} (already processed in this run)")
                 continue
                 
-            # 2. Skip if already exists in the database
-            if db is not None:
+            # 2. Skip if already exists in the database (unless --force is passed)
+            if db is not None and not force:
                 existing = db.query(models.Listing).filter(models.Listing.jd_url == place_url).first()
                 if existing:
                     print(f"  -> Skipping place {index+1}/{len(place_urls)} (already exists in database)")
@@ -1087,7 +1087,8 @@ async def main():
                     processed_urls=processed_urls,
                     district=args.district,
                     normalized_category=args.normalized_category,
-                    live=args.live
+                    live=args.live,
+                    force=args.force
                 )
                 
                 # Save progress after each pincode completes successfully
