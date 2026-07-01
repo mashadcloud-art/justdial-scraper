@@ -197,7 +197,7 @@ async def extract_gmaps_menu(browser, place_url: str) -> list:
         
     return menu_items
 
-async def scrape_pincode_places(browser, page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None):
+async def scrape_pincode_places(browser, page, pincode: str, query: str, max_photos: int = 1, category_name: str = "", db = None, processed_urls = None, district: str = "", normalized_category: str = "", live: bool = False):
     if pincode and pincode.strip():
         search_query = f"{query} in {pincode} Kerala"
     else:
@@ -382,6 +382,19 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             if web_el:
                 website = await web_el.get_attribute("href")
                 
+            # Extract Opening Hours
+            hours = "Regular Hours"
+            try:
+                hours_el = await page.query_selector("button[data-item-id='oh'], [data-item-id='oh']")
+                if hours_el:
+                    hours_text = await hours_el.get_attribute("aria-label")
+                    if not hours_text:
+                        hours_text = await hours_el.inner_text()
+                    if hours_text:
+                        hours = hours_text.replace("Hide open hours for the week", "").replace("Show open hours for the week", "").strip()
+            except Exception:
+                pass
+                
             # Extract Menu Link
             menu_url = ""
             menu_el = await page.query_selector("a[data-item-id='menu']")
@@ -463,16 +476,10 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                             btn = await page.query_selector(sel)
                             if btn:
                                 await btn.click()
-                                await page.wait_for_timeout(3000)
-                                # Check if photo viewer opened
-                                photo_viewer = await page.query_selector(
-                                    "div[jsaction*='photoView'], "
-                                    "div[role='dialog'] img, "
-                                    "div.SGGTgf"
-                                )
-                                if photo_viewer or gallery_opened is False:
-                                    gallery_opened = True
-                                    break
+                                # Give Google Maps time to start loading the gallery
+                                await page.wait_for_timeout(4000)
+                                gallery_opened = True
+                                break  # One successful click is enough — scroll does the rest
                         except Exception:
                             pass
 
@@ -600,13 +607,13 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                                 results.push(s);
                             }
                         });
-                        // Background images
+                        // Background images (fixed: matchAll is always available in modern V8)
                         document.querySelectorAll('[style*="googleusercontent"], [style*="ggpht"]').forEach(function(el) {
                             let style = el.getAttribute('style') || '';
-                            let matches = style.match_all
-                                ? Array.from(style.matchAll(/url\\("?([^"')]+(?:googleusercontent|ggpht)[^"')]+)"?\\)/g))
-                                : [];
-                            matches.forEach(function(m) { results.push(m[1]); });
+                            try {
+                                Array.from(style.matchAll(/url\\("?([^"')]+(?:googleusercontent|ggpht)[^"')]+)"?\\)/g))
+                                    .forEach(function(m) { results.push(m[1]); });
+                            } catch(e) {}
                         });
                         // Also check srcset
                         document.querySelectorAll('img[srcset]').forEach(function(img) {
@@ -695,6 +702,7 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 "menu_items": menu_items,
                 "category": category_name,
                 "subcategory": subcategory,
+                "opening_hours": hours,
                 "latitude": latitude,
                 "longitude": longitude,
                 "rating": rating,
@@ -703,7 +711,11 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             })
             if processed_urls is not None:
                 processed_urls.add(place_url)
-            print(f"     [OK] {name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)}")
+            print(f"     [OK] {name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
+            
+            # Immediately save and commit this listing to the database
+            if db is not None:
+                process_and_commit_places(db, [results[-1]], district, category_name, normalized_category, live)
             
         except Exception as e:
             print(f"     [ERR] Failed to parse place: {e}")
@@ -742,6 +754,9 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
                 updated = True
             if (not existing.phone or existing.phone.strip() == "") and h["phone"]:
                 existing.phone = h["phone"]
+                updated = True
+            if (not existing.opening_hours or existing.opening_hours == "Regular Hours" or existing.opening_hours.strip() == "") and h.get("opening_hours"):
+                existing.opening_hours = h["opening_hours"]
                 updated = True
                 
             if updated:
@@ -807,7 +822,7 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
                     category=category_name,
                     subcategory=h["subcategory"],
                     normalized_category=normalized_category,
-                    opening_hours="24 Hours" if category_name.lower() == "hospitals" else "Regular Hours",
+                    opening_hours=h.get("opening_hours", "Regular Hours"),
                     district=district,
                     state="Kerala",
                     place=h["address"].split(",")[-2].strip() if len(h["address"].split(",")) > 2 else "",
@@ -974,22 +989,46 @@ async def main():
                 print(f"\n>>> Skipped {skipped_count} already-scraped pincodes. Resuming from pincode {pin}...")
             
             print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} ---")
-            places = await scrape_pincode_places(browser, page, pin, query=args.query, max_photos=args.max_photos, category_name=args.category, db=db, processed_urls=processed_urls)
-            if places:
-                process_and_commit_places(
-                    db, places, 
-                    district=args.district, 
+            try:
+                places = await scrape_pincode_places(
+                    browser, page, pin, 
+                    query=args.query, 
+                    max_photos=args.max_photos, 
                     category_name=args.category, 
-                    normalized_category=args.normalized_category, 
+                    db=db, 
+                    processed_urls=processed_urls,
+                    district=args.district,
+                    normalized_category=args.normalized_category,
                     live=args.live
                 )
-            
-            # Save progress after each pincode
-            try:
-                with open(progress_file, 'w') as f:
-                    json.dump({'last_completed_index': index, 'last_pincode': pin}, f)
-            except Exception:
-                pass
+                
+                # Save progress after each pincode completes successfully
+                try:
+                    with open(progress_file, 'w') as f:
+                        json.dump({'last_completed_index': index, 'last_pincode': pin}, f)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"\n[ERROR] Pincode {pin} crashed: {e}")
+                print("Attempting to recover by restarting the browser context...")
+                try:
+                    await page.close()
+                    await context.close()
+                except:
+                    pass
+                
+                try:
+                    # Create a fresh context and page
+                    context = await browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        locale="en-US",
+                        viewport={"width": 1400, "height": 900}
+                    )
+                    page = await context.new_page()
+                    print("Browser context restarted successfully! Moving to next pincode...")
+                except Exception as restart_e:
+                    print(f"[FATAL] Could not restart browser: {restart_e}")
+                    break
             
         await browser.close()
         
