@@ -333,10 +333,15 @@ async def main(target_category=None, target_district=None, no_shutdown=False):
             )
             
             if target_category:
-                if target_category.lower() == "restaurants":
+                if target_category.lower() in ["restaurants", "food", "cafes"]:
                     query = query.filter(
                         (models.Listing.category.ilike("%restaurant%")) | 
                         (models.Listing.category.ilike("%cafe%")) | 
+                        (models.Listing.category.ilike("%coffee%")) |
+                        (models.Listing.category.ilike("%bakery%")) |
+                        (models.Listing.category.ilike("%bakeries%")) |
+                        (models.Listing.category.ilike("%snack%")) |
+                        (models.Listing.category.ilike("%sweet%")) |
                         (models.Listing.category.ilike("%food%")) |
                         (models.Listing.normalized_category.ilike("%restaurant%")) |
                         (models.Listing.normalized_category.ilike("%food%"))
