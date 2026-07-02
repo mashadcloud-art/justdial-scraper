@@ -35,7 +35,7 @@ def start_vite():
     global _vite_url
     try:
         proc = subprocess.Popen(
-            "npm run preview",
+            "npm run dev",
             cwd=UI_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -43,8 +43,9 @@ def start_vite():
             text=True
         )
         for line in proc.stdout:
+            clean_line = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', line)
             if _vite_url is None:
-                m = re.search(r"Local:\s+(http://localhost:\d+)", line)
+                m = re.search(r"Local:\s+(http://(?:localhost|127\.0\.0\.1):\d+)", clean_line)
                 if m:
                     _vite_url = m.group(1)
         proc.wait()
@@ -52,24 +53,6 @@ def start_vite():
         pass
 
 def open_app(url):
-    chrome_paths = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ]
-    args = [
-        "--app=" + url,
-        "--window-size=" + str(APP_W) + "," + str(APP_H),
-        "--window-position=200,80",
-        "--disable-extensions",
-        "--no-first-run",
-    ]
-    for path in chrome_paths:
-        if os.path.exists(path):
-            subprocess.Popen([path] + args)
-            return
     webbrowser.open(url)
 
 if __name__ == "__main__":
@@ -84,11 +67,11 @@ if __name__ == "__main__":
 
     # 4. Wait for Vite URL
     start = time.time()
-    while _vite_url is None and (time.time() - start) < 60:
-        time.sleep(0.3)
+    while _vite_url is None and (time.time() - start) < 3:
+        time.sleep(0.1)
 
     time.sleep(1)
-    open_app(_vite_url or "http://localhost:8080")
+    open_app(_vite_url or "http://localhost:8082")
 
     # 5. Keep alive
     try:

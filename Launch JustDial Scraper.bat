@@ -16,7 +16,7 @@ start /d "%~dp0" /b "" "C:\Users\PC\AppData\Local\Programs\Python\Python310\pyth
 
 echo.
 echo [3/3] Starting Frontend (Vite)...
-start /d "%~dp0ui" /b "" npm run preview
+start /d "%~dp0ui" /b "" npm run dev
 
 echo.
 echo Waiting for servers to initialize...
