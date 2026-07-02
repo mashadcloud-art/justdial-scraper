@@ -127,8 +127,7 @@ def scrape_jd_api(target_location: str, category: str, limit: int = 100, nextdoc
     if nextdocid:
         params["nextdocid"] = nextdocid
 
-    # Choose proxy configuration
-    proxy_config = PROXIES if getattr(args, "use_proxy", False) else NO_PROXY
+    # The proxy_config is already passed into the function arguments from scrape_jwt_city
 
     MAX_RETRIES = 3
     data = None
