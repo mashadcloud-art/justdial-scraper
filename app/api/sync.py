@@ -66,6 +66,58 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ==========================================
 router = APIRouter()
 
+@router.get("/db-status")
+def get_db_status(db: Session = Depends(get_db)):
+    from sqlalchemy import text
+    from app.database import is_postgres
+    try:
+        db.execute(text("SELECT 1"))
+        db_type = "PostgreSQL (Supabase)" if is_postgres else "SQLite (Local)"
+        db_url = settings.DATABASE_URL
+        if "@" in db_url:
+            db_url = db_url.split("@")[-1]
+        return {
+            "connected": True,
+            "type": db_type,
+            "url": db_url
+        }
+    except Exception as e:
+        return {
+            "connected": False,
+            "error": str(e)
+        }
+
+@router.post("/db-config")
+def update_db_config(payload: dict):
+    from app_config import CONFIG_FILE, save_config
+    import yaml
+    try:
+        current_config = {}
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                current_config = yaml.safe_load(f) or {}
+        
+        if "db_url" in payload:
+            if "database" not in current_config:
+                current_config["database"] = {}
+            current_config["database"]["url"] = payload["db_url"]
+            
+        if "supabase_url" in payload:
+            if "supabase" not in current_config:
+                current_config["supabase"] = {}
+            current_config["supabase"]["url"] = payload["supabase_url"]
+            
+        if "supabase_anon_key" in payload:
+            if "supabase" not in current_config:
+                current_config["supabase"] = {}
+            current_config["supabase"]["anon_key"] = payload["supabase_anon_key"]
+            
+        save_config(current_config)
+        return {"status": "success", "message": "Configuration updated! Please restart the backend to apply changes."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/system/restart")
 def restart_server(background_tasks: BackgroundTasks):
     import time
@@ -82,12 +134,12 @@ def restart_server(background_tasks: BackgroundTasks):
 
 def _get_adb_path():
     if os.name == "nt":
-        scrcpy_adb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch", "scrcpy", "scrcpy-win64-v4.0", "adb.exe"))
-        if os.path.exists(scrcpy_adb):
-            return scrcpy_adb
         bluestacks_adb = r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
         if os.path.exists(bluestacks_adb):
             return bluestacks_adb
+        scrcpy_adb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch", "scrcpy", "scrcpy-win64-v4.0", "adb.exe"))
+        if os.path.exists(scrcpy_adb):
+            return scrcpy_adb
         return os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe")
     return "adb"
 
@@ -296,8 +348,12 @@ def upload_listing(
                 if isinstance(amenities_data, dict):
                     for category, values in amenities_data.items():
                         if isinstance(values, list):
-                            for val in values:
-                                db.add(models.Amenity(listing_id=listing_id, category=str(category), value=str(val)))
+                                # Truncate category to 100 characters and value to 200 characters to respect database column limits
+                                db.add(models.Amenity(
+                                    listing_id=listing_id, 
+                                    category=str(category)[:100], 
+                                    value=str(val)[:200]
+                                ))
             except Exception as amenity_e:
                 pass  # Ignore amenities errors
 
@@ -371,6 +427,44 @@ def get_listings(
     search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    # 1. Search Professionals Union
+    pros_result = []
+    if search:
+        keywords = search.strip().split()
+        pro_query = db.query(models.Professional)
+        for kw in keywords:
+            pro_query = pro_query.filter(
+                models.Professional.name.ilike(f"%{kw}%") |
+                models.Professional.tags.ilike(f"%{kw}%")
+            )
+        matching_pros = pro_query.all()
+        for p in matching_pros:
+            parent_listing = db.query(models.Listing).filter(models.Listing.id == p.listing_id).first()
+            district_val = parent_listing.district if parent_listing else ""
+            state_val = parent_listing.state if parent_listing else ""
+            
+            pros_result.append({
+                "id": f"pro_{p.id}",
+                "name": p.name,
+                "phone": "-",
+                "whatsapp": None,
+                "address": f"Student at: {parent_listing.name if parent_listing else 'SEED Campus'}",
+                "jd_url": "",
+                "category": p.tags if p.tags else "ACCA Professional",
+                "subcategory": "Placed Students",
+                "normalized_category": "Education Professionals",
+                "opening_hours": "N/A",
+                "district": district_val,
+                "state": state_val,
+                "place": "",
+                "latitude": "",
+                "longitude": "",
+                "image_path": p.image_url,
+                "menu_items": [],
+                "amenities": [{"category": "Achievement", "value": p.achievement}],
+                "images": [{"path": p.image_url, "category": "general"}]
+            })
+
     # Standard Listing Query Fallback
     query = db.query(models.Listing)
     
@@ -396,11 +490,15 @@ def get_listings(
                 models.Listing.category.ilike(f"%{kw}%") |
                 models.Listing.address.ilike(f"%{kw}%") |
                 models.Listing.phone.ilike(f"%{kw}%") |
-                models.Listing.district.ilike(f"%{kw}%")
+                models.Listing.district.ilike(f"%{kw}%") |
+                models.Listing.id.in_(
+                    db.query(models.Professional.listing_id).filter(
+                        models.Professional.name.ilike(f"%{kw}%") |
+                        models.Professional.tags.ilike(f"%{kw}%")
+                    )
+                )
             )
         
-    total_count = query.count()
-    
     listings = query.options(
         selectinload(models.Listing.images),
         selectinload(models.Listing.menu_items),
@@ -424,6 +522,10 @@ def get_listings(
             "latitude": getattr(r, "latitude", ""), "longitude": getattr(r, "longitude", ""),
             "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list
         })
+        
+    # Append professionals to the results list
+    result = pros_result + result
+    total_count = len(result)
         
     return {
         "data": result,
@@ -455,6 +557,40 @@ def get_stats(db: Session = Depends(get_db)):
         "total_menu_items": total_menu_items,
         "category_breakdown": category_breakdown
     }
+
+# ==========================================
+# 3a. NEW: COVERAGE TRACKER
+# ==========================================
+@router.get("/coverage")
+def get_coverage(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    # Group by state, district, category and count
+    coverage_counts = db.query(
+        models.Listing.state,
+        models.Listing.district,
+        models.Listing.category,
+        func.count(models.Listing.id)
+    ).group_by(
+        models.Listing.state,
+        models.Listing.district,
+        models.Listing.category
+    ).all()
+    
+    # Format the data into a structured dictionary
+    # { "Kerala": { "Ernakulam": { "Banquet Halls": 1200 } } }
+    result = {}
+    for state, district, category, count in coverage_counts:
+        st = state or "Unknown State"
+        dist = district or "Unknown District"
+        cat = category or "Unknown Category"
+        
+        if st not in result:
+            result[st] = {}
+        if dist not in result[st]:
+            result[st][dist] = {}
+        result[st][dist][cat] = count
+        
+    return {"coverage": result}
 
 # ==========================================
 # 3b. CATEGORY SUMMARY — grouped parent categories with raw sub-category breakdown
@@ -728,7 +864,7 @@ def trigger_scrape(
                     elif engine == "jwt_api":
                         from jd_api_scraper import scrape_jwt_city
                         search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
-                        scrape_jwt_city(city, search_cat, pages=max_limit, limit=10, dry_run=False)
+                        scrape_jwt_city(city, search_cat, pages=max_limit, limit=100, dry_run=False)
                     else:
                         selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                     
@@ -757,6 +893,71 @@ def trigger_scrape(
         import threading
         threading.Thread(target=run_sync_scrape, daemon=True).start()
         return {"status": "started", "message": "Scraping task started."}
+
+@router.post("/scrape/cli")
+async def trigger_cli_scrape(request: Request, background_tasks: BackgroundTasks):
+    global scraping_in_progress, scraping_started_at
+    _clear_stop_flag()
+    if scraping_in_progress:
+        raise HTTPException(status_code=400, detail="Scrape task is already in progress.")
+        
+    data = await request.json()
+    cmd_str = data.get("command", "").strip()
+    
+    if not cmd_str.startswith("python jd_api_scraper.py") and not cmd_str.startswith("python3 jd_api_scraper.py") and not cmd_str.startswith("python scrape_"):
+        raise HTTPException(status_code=400, detail="Only jd_api_scraper.py or scrape_*.py commands are allowed for safety.")
+        
+    scraper_logger.clear()
+    
+    def run_cli_scrape():
+        global scraping_in_progress, scraping_started_at
+        import time as _time
+        import shlex
+        scraping_started_at = _time.time()
+        scraping_in_progress = True
+        
+        log(f"💻 Starting CLI Scrape: {cmd_str}")
+        def _is_stop_requested():
+            flag_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "scrape_stop.flag")
+            return os.path.exists(flag_path)
+
+        try:
+            process = subprocess.Popen(
+                shlex.split(cmd_str),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                encoding='utf-8',
+                errors='replace'
+            )
+            
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    if _is_stop_requested():
+                        log("⚠️ Stopping CLI scrape process as requested...")
+                        process.terminate()
+                        break
+                    log(line.strip())
+                    
+            process.stdout.close()
+            return_code = process.wait()
+            
+            if _is_stop_requested():
+                log("🛑 CLI Scrape stopped by user.")
+            elif return_code == 0:
+                log("✅ CLI Scrape completed successfully.")
+            else:
+                log(f"❌ CLI Scrape exited with code {return_code}", ok=False)
+                
+        except Exception as e:
+            log(f"💥 Failed to execute CLI command: {e}", ok=False)
+        finally:
+            scraping_in_progress = False
+            scraping_started_at = None
+
+    background_tasks.add_task(run_cli_scrape)
+    return {"status": "started", "message": "CLI command started."}
 
 @router.get("/scrape/status")
 def get_scrape_status(last_idx: int = 0):
