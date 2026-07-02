@@ -452,51 +452,20 @@ scrape_single_url('{manual_url}')
         
         st.divider()
         
-        # --- CLOUD JOB BUTTON ---
-        st.markdown("### ☁️ Cloud Automation")
-        st.info("Turn off your PC and let the Cloud handle the entire scrape.")
+        # --- CLOUD SHELL COMMANDS GENERATOR ---
+        st.markdown("### ☁️ Cloud Terminal Command Generator")
+        st.info("Copy these commands and paste them directly into your remote cloud VM shell (e.g. SSH terminal) to run the scrape off-device:")
         
-        col_cloud1, col_cloud2 = st.columns(2)
-        with col_cloud1:
-            if st.button("☁️ Send Full Scrape to Cloud", use_container_width=True):
-                # Insert a pending job into the database
-                db = SessionLocal()
-                try:
-                    job = models.ScraperJob(
-                        district=gmaps_district,
-                        query=gmaps_query,
-                        category=gmaps_category,
-                        normalized_category=gmaps_normalized,
-                        max_photos=gmaps_max_photos,
-                        status="pending"
-                    )
-                    db.add(job)
-                    db.commit()
-                    st.success(f"Job #{job.id} successfully sent to the Cloud! You can safely turn off your PC.")
-                except Exception as e:
-                    st.error(f"Error connecting to database: {e}")
-                finally:
-                    db.close()
-        with col_cloud2:
-            if st.button("🛑 Stop Cloud Job", use_container_width=True):
-                # We simply insert a generic job with status "cancel". The cloud worker will see this and kill its processes.
-                db = SessionLocal()
-                try:
-                    cancel_job = models.ScraperJob(
-                        district="ALL",
-                        query="CANCEL",
-                        category="CANCEL",
-                        normalized_category="CANCEL",
-                        max_photos=0,
-                        status="cancel"
-                    )
-                    db.add(cancel_job)
-                    db.commit()
-                    st.success("Sent cancel signal! The Cloud will stop scraping within 10 seconds.")
-                except Exception as e:
-                    st.error(f"Error connecting to database: {e}")
-                finally:
-                    db.close()
+        # Build the exact commands dynamically based on input fields above
+        fast_cmd_str = f"python3 -u scrape_gmaps_general.py --district \"{gmaps_district}\" --query \"{gmaps_query}\" --category \"{gmaps_category}\" --normalized-category \"{gmaps_normalized}\" --live"
+        deep_cmd_str = f"python3 -u app/scraper/scrape_background_images.py --district \"{gmaps_district}\" --category \"{gmaps_category}\""
+        
+        st.markdown("**1. Run Fast Scraper (in background):**")
+        st.code(f"nohup {fast_cmd_str} > fast_scraper.log 2>&1 &", language="bash")
+        
+        st.markdown("**2. Run Deep Image & Menu Scraper (in background):**")
+        st.code(f"nohup {deep_cmd_str} > deep_daemon.log 2>&1 &", language="bash")
+        
         st.markdown("---")
 
         if st.button("🚀 Start Google Maps Scraper", type="primary", disabled=st.session_state.is_scraping, use_container_width=True, key="start_gmaps"):
