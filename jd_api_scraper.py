@@ -35,10 +35,18 @@ from app.api.pincodes import get_pincodes_for_district
 JD_API_BASE = "https://win.justdial.com/01march2019/searchziva.php"
 SECRET_KEY = "2MQkzWVlwMx44uSC3KvWGk4nYiXQ3cMicyZQP7oc8y6KcflHR9zksp2eT1YHAGQL9EYr/Bdydfmr9jVNkRRwFg=="
 
-PROXIES = {
-    "http": "http://wnjqhjor-IN-1:0clsqfyfo9wa@p.webshare.io:80/",
-    "https": "http://wnjqhjor-IN-1:0clsqfyfo9wa@p.webshare.io:80/"
-}
+# Rotates between the user's 69 different Webshare static residential proxy credentials
+import random
+def get_random_proxy():
+    # Credentials format: wnjqhjor-IN-X:0clsqfyfo9wa where X is between 1 and 69
+    num = random.randint(1, 69)
+    proxy_str = f"http://wnjqhjor-IN-{num}:0clsqfyfo9wa@p.webshare.io:80/"
+    return {
+        "http": proxy_str,
+        "https": proxy_str
+    }
+
+PROXIES = get_random_proxy()
 # NOTE: Proxy disabled for search requests — Webshare IPs are from random Indian cities
 # (Delhi/Bangalore) causing JustDial to return wrong city results.
 # Use NO_PROXY for direct search, proxy only needed on Oracle Cloud server.
@@ -133,13 +141,16 @@ def scrape_jd_api(target_location: str, category: str, limit: int = 100, nextdoc
     data = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            # Regenerate token + device_id on each retry for a fresh identity
+            # Regenerate token + device_id + get a fresh random proxy on each retry for a fresh identity
+            current_proxy = proxy_config
             if attempt > 1:
                 headers["Authorization"] = f"Bearer {generate_jd_bearer_token()}"
                 headers["di"] = str(uuid.uuid4())
+                if proxy_config is not None:
+                    current_proxy = get_random_proxy()
                 print(f"  [RETRY {attempt}/{MAX_RETRIES}] Retrying with fresh proxy IP...")
                 time.sleep(2)
-            resp = requests.get(JD_API_BASE, params=params, headers=headers, timeout=20, proxies=proxy_config)
+            resp = requests.get(JD_API_BASE, params=params, headers=headers, timeout=20, proxies=current_proxy)
             resp.raise_for_status()
             data = resp.json()
             break  # Success — exit retry loop
@@ -625,8 +636,8 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
                     log("  All returned docids have been fetched. Moving to next target.")
                     break
 
-            # Determine proxy configuration for this iteration
-            proxy_config = PROXIES if use_proxy else NO_PROXY
+            # Determine proxy configuration for this iteration dynamically
+            proxy_config = get_random_proxy() if use_proxy else NO_PROXY
 
             if use_area_query:
                 result = scrape_jd_api(district, f"{category} in {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config)
