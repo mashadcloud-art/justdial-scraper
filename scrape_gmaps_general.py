@@ -1011,6 +1011,18 @@ async def main():
         "Puthuppady Kozhikode", "Iringal", "Chombala", "Tiruvallur Kozhikode"
     ]
 
+    # Major towns/areas in Kannur district
+    KANNUR_PLACES = [
+        "Kannur City", "Thalassery", "Payyannur", "Taliparamba", "Iritty",
+        "Kuthuparamba", "Mattannur", "Chala Kannur", "Dharmadom", "Valapattanam",
+        "Pappinisseri", "Muzhappilangad", "Panoor", "Alakode", "Kelakam",
+        "Peravoor", "Payyambalam Beach", "Pallikkunnu", "Thottada", "Peringome",
+        "Sreekandapuram", "Cherupuzha", "Karivellur", "Madayi", "Pilathara",
+        "Mayyil", "Anjarakandy", "Chakkarakkal", "Pinarayi", "Kadirur",
+        "Chirakkal", "Ezhimala", "Chelora", "Edakkad", "Kalliasseri",
+        "Kottayam Malabar", "Ulikkal", "Mananthavady Road Kannur", "Mattul", "Keezhur"
+    ]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--district", required=True, help="Target district (e.g. Kasaragod)")
     parser.add_argument("--query", required=True, help="Search query keyword (e.g. restaurants, cafes)")
@@ -1021,7 +1033,7 @@ async def main():
     parser.add_argument("--live", action="store_true", help="Write changes directly to database")
     parser.add_argument("--start-pin-index", type=int, default=0, help="Pincode index to start scraping from (0-based)")
     parser.add_argument("--force", action="store_true", help="Force re-scrape of already scraped pincodes in DB")
-    parser.add_argument("--place-names", action="store_true", help="Search by place/town names instead of pincodes (Kozhikode only for now)")
+    parser.add_argument("--place-names", action="store_true", help="Search by place/town names instead of pincodes")
     args = parser.parse_args()
     
     db = SessionLocal()
@@ -1039,8 +1051,11 @@ async def main():
     
     # 1. Fetch pincodes or place names
     if args.place_names:
-        pincodes = KOZHIKODE_PLACES  # Reuse pincodes variable but with place names
-        print(f"Mode: PLACE NAMES (searching by {len(pincodes)} town/area names in Kozhikode)")
+        if args.district.lower() == "kannur":
+            pincodes = KANNUR_PLACES
+        else:
+            pincodes = KOZHIKODE_PLACES  # Default to Kozhikode
+        print(f"Mode: PLACE NAMES (searching by {len(pincodes)} town/area names in {args.district})")
     else:
         district_query = args.district
         pincodes = get_pincodes_for_district(district_query)
