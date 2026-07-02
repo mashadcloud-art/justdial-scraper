@@ -409,16 +409,45 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             if web_el:
                 website = await web_el.get_attribute("href")
                 
-            # Extract Opening Hours
+            # Extract Opening Hours (Robust JS Evaluator)
             hours = "Regular Hours"
             try:
-                hours_el = await page.query_selector("button[data-item-id='oh'], [data-item-id='oh']")
-                if hours_el:
-                    hours_text = await hours_el.get_attribute("aria-label")
-                    if not hours_text:
-                        hours_text = await hours_el.inner_text()
-                    if hours_text:
-                        hours = hours_text.replace("Hide open hours for the week", "").replace("Show open hours for the week", "").strip()
+                hours_val = await page.evaluate("""
+                    () => {
+                        // 1. Try selector with data-item-id='oh'
+                        let el = document.querySelector('button[data-item-id="oh"], [data-item-id="oh"]');
+                        if (el) {
+                            let val = el.getAttribute('aria-label') || el.innerText || '';
+                            if (val.trim()) return val.trim();
+                        }
+                        
+                        // 2. Look for the clock image icon row
+                        let clockImg = document.querySelector('img[src*="clock_black"], img[src*="clock_blue"], img[src*="schedule"]');
+                        if (clockImg) {
+                            let parentBtn = clockImg.closest('button');
+                            if (parentBtn) {
+                                let label = parentBtn.getAttribute('aria-label');
+                                if (label) return label;
+                                // Try text content of surrounding elements
+                                let container = parentBtn.closest('div[class*="Rzn1w"]');
+                                if (container) return container.innerText;
+                                return parentBtn.innerText;
+                            }
+                        }
+                        
+                        // 3. Look for elements containing "Open" or "Closed" with hours text
+                        let divs = Array.from(document.querySelectorAll('div, button'));
+                        for (let d of divs) {
+                            let txt = d.innerText || '';
+                            if (txt.includes('Open 24 hours') || txt.includes('Opens ') || txt.includes('Closed. Opens ')) {
+                                if (txt.length < 150) return txt.trim();
+                            }
+                        }
+                        return "Regular Hours";
+                    }
+                """)
+                if hours_val:
+                    hours = hours_val.replace("Hide open hours for the week", "").replace("Show open hours for the week", "").replace("?", "").strip()
             except Exception:
                 pass
                 
@@ -712,10 +741,8 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                 except Exception as e:
                     print(f"     [WARN] Hero image fallback failed: {e}")
             
-            # Extract digital menu if restaurant category (runs in temporary background mobile context)
+            # Digital menu scraping moved to background deep image scraper daemon for speed
             menu_items = []
-            if category_name.lower() == "restaurants":
-                menu_items = await extract_gmaps_menu(browser, place_url)
 
             results.append({
                 "name": name,
@@ -738,18 +765,17 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             })
             if processed_urls is not None:
                 processed_urls.add(place_url)
-            try:
-                print(f"     [OK] {name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
-            except Exception:
-                safe_name = name.encode('ascii', 'ignore').decode('ascii')
-                print(f"     [OK] {safe_name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {hours}")
+            safe_name = name.encode('ascii', 'ignore').decode('ascii')
+            safe_hours = str(hours).encode('ascii', 'ignore').decode('ascii')
+            print(f"     [OK] {safe_name} | Phone: {phone} | Lat/Lng: {latitude},{longitude} | Photos: {len(image_urls)} | Services: {len(service_attrs)} | Hours: {safe_hours}")
             
             # Immediately save and commit this listing to the database
             if db is not None:
                 process_and_commit_places(db, [results[-1]], district, category_name, normalized_category, live)
             
         except Exception as e:
-            print(f"     [ERR] Failed to parse place: {e}")
+            safe_e = str(e).encode('ascii', 'ignore').decode('ascii')
+            print(f"     [ERR] Failed to parse place: {safe_e}")
             
     return results
 
@@ -970,6 +996,21 @@ def process_and_commit_places(db, places, district: str, category_name: str, nor
         print(f"    New listings: {inserted_count}, Updates: {updated_count}")
 
 async def main():
+    # Place names for Kozhikode district (used with --place-names flag)
+    KOZHIKODE_PLACES = [
+        "Kozhikode City", "Calicut Beach", "Palayam", "Mavoor Road", "SM Street",
+        "Nadakkavu", "Chevayur", "Mankave", "Bilathikulam", "Eranhipalam",
+        "Puthiyara", "Kannur Road Kozhikode", "Kunnamangalam", "Feroke",
+        "Beypore", "Elathur", "Kadalundi", "Ramanattukara", "Thiruvambady",
+        "Koyilandy", "Vatakara", "Quilandy", "Perambra", "Balussery",
+        "Thamarassery", "Kalpetta Road Kozhikode", "Mukkam", "Koduvally",
+        "Nadapuram", "Payyoli", "Quilandy Beach", "Kuttiyadi", "Ponnani Road Kozhikode",
+        "Chelannur", "Chorode", "Unnikulam", "Meppayur", "Villiappally",
+        "Koorachundu", "Kayakkody", "Kakkodi", "Omassery", "Chaliyar",
+        "Edacherry Kozhikode", "Narippatta", "Olavanna", "Vengara Kozhikode",
+        "Puthuppady Kozhikode", "Iringal", "Chombala", "Tiruvallur Kozhikode"
+    ]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--district", required=True, help="Target district (e.g. Kasaragod)")
     parser.add_argument("--query", required=True, help="Search query keyword (e.g. restaurants, cafes)")
@@ -980,6 +1021,7 @@ async def main():
     parser.add_argument("--live", action="store_true", help="Write changes directly to database")
     parser.add_argument("--start-pin-index", type=int, default=0, help="Pincode index to start scraping from (0-based)")
     parser.add_argument("--force", action="store_true", help="Force re-scrape of already scraped pincodes in DB")
+    parser.add_argument("--place-names", action="store_true", help="Search by place/town names instead of pincodes (Kozhikode only for now)")
     args = parser.parse_args()
     
     db = SessionLocal()
@@ -995,18 +1037,22 @@ async def main():
     print(f"Mode: {'LIVE (writing to DB)' if args.live else 'DRY RUN (no writes)'}")
     print()
     
-    # 1. Fetch pincodes
-    district_query = args.district
-    pincodes = get_pincodes_for_district(district_query)
-    if not pincodes and district_query.lower() == "kasaragod":
-        print("Retrying pincode search with spelling: 'Kasargod'...")
-        district_query = "Kasargod"
+    # 1. Fetch pincodes or place names
+    if args.place_names:
+        pincodes = KOZHIKODE_PLACES  # Reuse pincodes variable but with place names
+        print(f"Mode: PLACE NAMES (searching by {len(pincodes)} town/area names in Kozhikode)")
+    else:
+        district_query = args.district
         pincodes = get_pincodes_for_district(district_query)
-        
-    if not pincodes:
-        print("Error: No pincodes found. Check connection or spelling of district.")
-        db.close()
-        return
+        if not pincodes and district_query.lower() == "kasaragod":
+            print("Retrying pincode search with spelling: 'Kasargod'...")
+            district_query = "Kasargod"
+            pincodes = get_pincodes_for_district(district_query)
+            
+        if not pincodes:
+            print("Error: No pincodes found. Check connection or spelling of district.")
+            db.close()
+            return
         
     print(f"Found {len(pincodes)} pincodes in district {args.district}.")
     if args.start_pin_index > 0:
@@ -1020,7 +1066,8 @@ async def main():
     scraped_pincodes = set()
     try:
         rows = db.query(models.Listing.address).filter(
-            models.Listing.category == args.category,
+            (models.Listing.category == args.category) | 
+            (models.Listing.normalized_category == args.normalized_category),
             models.Listing.district == args.district
         ).all()
         for (addr,) in rows:
@@ -1061,22 +1108,24 @@ async def main():
         processed_urls = set()
         skipped_count = 0
         for index, pin in enumerate(pincodes):
-            # Skip if pincode already scraped in DB (unless --force is passed)
-            if pin in scraped_pincodes and not args.force:
+            # In place-names mode, never skip based on pincode DB check
+            label = "Place" if args.place_names else "Pincode"
+            # Skip if pincode already scraped in DB (unless --force is passed or place-names mode)
+            if not args.place_names and pin in scraped_pincodes and not args.force:
                 skipped_count += 1
-                print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} --- SKIPPED (already in DB)")
+                print(f"\n--- {label} {index+1}/{len(pincodes)}: {pin} --- SKIPPED (already in DB)")
                 continue
             
             # Skip if before last completed index (crash recovery)
-            if index <= last_completed_index:
+            if not args.place_names and index <= last_completed_index:
                 skipped_count += 1
-                print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} --- SKIPPED (progress file)")
+                print(f"\n--- {label} {index+1}/{len(pincodes)}: {pin} --- SKIPPED (progress file)")
                 continue
                 
             if skipped_count > 0 and index == skipped_count:
                 print(f"\n>>> Skipped {skipped_count} already-scraped pincodes. Resuming from pincode {pin}...")
             
-            print(f"\n--- Pincode {index+1}/{len(pincodes)}: {pin} ---")
+            print(f"\n--- {label} {index+1}/{len(pincodes)}: {pin} ---")
             try:
                 places = await scrape_pincode_places(
                     browser, page, pin, 
@@ -1098,7 +1147,8 @@ async def main():
                 except Exception:
                     pass
             except Exception as e:
-                print(f"\n[ERROR] Pincode {pin} crashed: {e}")
+                safe_e = str(e).encode('ascii', 'ignore').decode('ascii')
+                print(f"\n[ERROR] Pincode {pin} crashed: {safe_e}")
                 print("Attempting to recover by restarting the browser context...")
                 try:
                     await page.close()
@@ -1128,7 +1178,7 @@ async def main():
     except Exception:
         pass
     
-    print(f"\nScraping complete! Skipped {skipped_count} already-scraped pincodes.")
+    print(f"\nScraping complete! Skipped {skipped_count} already-scraped {'places' if args.place_names else 'pincodes'}.")
     db.close()
 
 if __name__ == "__main__":
