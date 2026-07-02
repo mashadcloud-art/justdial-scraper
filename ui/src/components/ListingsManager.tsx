@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Database, Search, Target, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Database, Search, Target, RefreshCw, ChevronLeft, ChevronRight, Image as ImageIcon, Play, Square, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Make sure to pass CITIES and SUBCATEGORIES from index.tsx or import them if exported
@@ -20,6 +20,7 @@ export default function ListingsManager({
   const [district, setDistrict] = useState("All");
   const [mainCat, setMainCat] = useState("Restaurants");
   const [subCat, setSubCat] = useState("All");
+  const [source, setSource] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [page, setPage] = useState(1);
@@ -35,6 +36,13 @@ export default function ListingsManager({
 
   const [previewing, setPreviewing] = useState(false);
   const [previewData, setPreviewData] = useState<{name: string, phone: string}[] | null>(null);
+  
+  // For single-image scraping
+  const [singleImageScraping, setSingleImageScraping] = useState(false);
+  const [maxImagesPerPlace, setMaxImagesPerPlace] = useState(20);
+  const [singleImageLogs, setSingleImageLogs] = useState<{time: string; ok: boolean; msg: string}[]>([]);
+  const singleImageLogRef = useRef<HTMLDivElement>(null);
+  const [showLogs, setShowLogs] = useState(false);
 
   const districts = CITIES[state] || [];
   const subCategoriesList = SUBCATEGORIES[mainCat] || [];
@@ -44,7 +52,7 @@ export default function ListingsManager({
       fetchPage();
     }, 300);
     return () => clearTimeout(timer);
-  }, [page, district, state, subCat, searchQuery, limit]);
+  }, [page, district, state, subCat, searchQuery, limit, source]);
 
   async function fetchPage() {
     try {
@@ -52,6 +60,7 @@ export default function ListingsManager({
       if (state && state !== "All") qs.append("state", state);
       if (district && district !== "All") qs.append("district", district);
       if (subCat && subCat !== "All") qs.append("category", subCat);
+      if (source && source !== "All") qs.append("source", source);
       if (searchQuery) qs.append("search", searchQuery);
 
       const res = await fetch(`${API}/listings?${qs.toString()}`);
@@ -137,6 +146,73 @@ export default function ListingsManager({
     }
   }
 
+  async function startSingleImageScrape() {
+    if (singleImageScraping) return;
+    setSingleImageScraping(true);
+    setSingleImageLogs([]);
+    setShowLogs(true);
+
+    function addLog(ok: boolean, msg: string) {
+      setSingleImageLogs(logs => [
+        ...logs,
+        { time: new Date().toLocaleTimeString("en-GB", { hour12: false }), ok, msg }
+      ]);
+    }
+
+    addLog(true, "Starting single-image listings scrape...");
+
+    try {
+      const res = await fetch(`${API}/gmaps/scrape-single-image-listings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          district: district === "All" ? undefined : district,
+          category: subCat === "All" ? mainCat : subCat,
+          max_images_per_place: maxImagesPerPlace
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        addLog(false, `Failed to start: ${err}`);
+        setSingleImageScraping(false);
+        return;
+      }
+
+      addLog(true, "Scrape started, polling for updates...");
+
+      // Poll for status and logs
+      let lastIdx = 0;
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch(`${API}/gmaps/status?last_idx=${lastIdx}`);
+          if (!sr.ok) return;
+          const data = await sr.json();
+          
+          if (data.logs?.length) {
+            data.logs.forEach((log: any) => {
+              addLog(log.ok ?? true, log.msg ?? log.message ?? JSON.stringify(log));
+            });
+            lastIdx = data.next_idx ?? lastIdx + data.logs.length;
+          }
+          
+          if (!data.running) {
+            clearInterval(poll);
+            setSingleImageScraping(false);
+            addLog(true, "Scrape complete!");
+            fetchPage();
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }, 2000);
+
+    } catch (e: any) {
+      addLog(false, `Error: ${e.message}`);
+      setSingleImageScraping(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full overflow-y-auto p-4 space-y-4">
       {/* Controls Top Bar */}
@@ -178,6 +254,14 @@ export default function ListingsManager({
           <select value={subCat} onChange={(e) => { setSubCat(e.target.value); setPage(1); }} className="w-full h-9 rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none">
             <option value="All">All Subcategories</option>
             {subCategoriesList.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1.5 flex-1 min-w-[150px]">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Source</label>
+          <select value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }} className="w-full h-9 rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none">
+            <option value="All">All Sources</option>
+            <option value="justdial">JustDial</option>
+            <option value="google">Google Maps</option>
           </select>
         </div>
       </div>
@@ -254,6 +338,84 @@ export default function ListingsManager({
           </div>
         </div>
       </div>
+      
+      {/* Single-Image Scrape Panel */}
+      <div className="bg-card rounded-xl p-4 ring-1 ring-border shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <ImageIcon className="size-4 text-brand" />
+            Scrape Missing Images from Google Maps
+          </h3>
+          {showLogs && (
+            <Button size="sm" variant="outline" onClick={() => setShowLogs(false)}>
+              Hide Logs
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Finds all listings that only have 1 image and scrapes more high-res images from Google Maps (saves links only, no downloads).
+        </p>
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5 w-48">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Max Images per Place</label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={maxImagesPerPlace}
+              onChange={(e) => setMaxImagesPerPlace(Math.max(1, Math.min(100, parseInt(e.target.value) || 20)))}
+              className="w-full h-9 rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none"
+            />
+          </div>
+          <div className="space-y-1.5 flex-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Selected Filters</label>
+            <div className="text-xs text-muted-foreground">
+              {district === "All" ? "All Districts" : district} / {subCat === "All" ? mainCat : subCat}
+            </div>
+          </div>
+          <Button
+            onClick={startSingleImageScrape}
+            disabled={singleImageScraping}
+            className="h-16 text-white text-lg font-bold shadow-2xl animate-pulse"
+            style={{ background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" }}
+          >
+            <Play className="size-5 mr-2" />
+            {singleImageScraping ? "SCRAPING NOW..." : "🟢 CLICK HERE TO SCRAPE MISSING IMAGES 🟢"}
+          </Button>
+        </div>
+        
+        {showLogs && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold flex items-center gap-1">
+                <Activity className="size-3" /> Activity Log
+              </h4>
+              <button
+                onClick={() => setSingleImageLogs([])}
+                className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+            <div
+              ref={singleImageLogRef}
+              className="h-32 overflow-y-auto font-mono text-xs space-y-0.5 bg-muted/20 rounded-lg p-3 border border-border"
+            >
+              {singleImageLogs.length === 0 ? (
+                <p className="text-muted-foreground text-center py-4">Logs will appear here when scraping starts...</p>
+              ) : (
+                singleImageLogs.map((log, i) => (
+                  <div key={i} className="flex gap-2 leading-5">
+                    <span className="text-muted-foreground shrink-0">[{log.time}]</span>
+                    <span className={log.ok ? "text-emerald-400" : "text-red-400"}>{log.ok ? "✓" : "✗"}</span>
+                    <span className="text-foreground/80 break-all">{log.msg}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Data Table */}
       <div className="flex-1 bg-card rounded-xl ring-1 ring-border shadow-sm overflow-hidden flex flex-col min-h-[300px]">
@@ -282,11 +444,12 @@ export default function ListingsManager({
                 <th className="px-4 py-2 font-medium">Phone</th>
                 <th className="px-4 py-2 font-medium">Category</th>
                 <th className="px-4 py-2 font-medium">District</th>
+                <th className="px-4 py-2 font-medium">Source</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {data.length === 0 ? (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No data found for this filter.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No data found for this filter.</td></tr>
               ) : (
                 data.map(item => (
                   <tr key={item.id} className="hover:bg-muted/30">
@@ -294,6 +457,25 @@ export default function ListingsManager({
                     <td className="px-4 py-2">{item.phone}</td>
                     <td className="px-4 py-2">{item.category}</td>
                     <td className="px-4 py-2">{item.district}</td>
+                    <td className="px-4 py-2">
+                      {item.jd_url ? (
+                        <a 
+                          href={item.jd_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className={cn(
+                            "px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors inline-block hover:underline",
+                            item.jd_url.includes("google.com/maps") 
+                              ? "bg-blue-500/10 text-blue-500 border-blue-500/20 hover:bg-blue-500/20" 
+                              : "bg-orange-500/10 text-orange-500 border-orange-500/20 hover:bg-orange-500/20"
+                          )}
+                        >
+                          {item.jd_url.includes("google.com/maps") ? "Google Maps ↗" : "JustDial ↗"}
+                        </a>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-muted text-muted-foreground border border-border">Other</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
