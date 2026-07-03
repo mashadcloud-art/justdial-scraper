@@ -47,7 +47,7 @@ async def scrape_gallery_images(page, max_photos=50):
         try:
             tab_clicked = False
             for tab_label in ["By owner", "Owner", "Exterior", "Interior"]:
-                tab_btn = await page.get_by_role("button", name=tab_label, exact=False).first
+                tab_btn = page.get_by_role("button", name=tab_label, exact=False).first
                 if await tab_btn.is_visible():
                     print(f"    Found cleaner tab: '{tab_label}'. Clicking it...")
                     await tab_btn.click()
