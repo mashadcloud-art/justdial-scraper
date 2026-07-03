@@ -48,7 +48,7 @@ API_UPLOAD_URL = os.getenv("API_UPLOAD_URL", "http://localhost:8000/api/v1/uploa
 # Delay between listing scrapes (seconds) — keep this to avoid blocks
 DELAY_BETWEEN_LISTINGS = 6
 DELAY_BETWEEN_SCROLLS  = 2
-MAX_PHOTO_SCROLL       = 5   # how many times to scroll the photo panel
+MAX_PHOTO_SCROLL       = 15  # how many times to scroll the photo panel (increased for more images)
 
 
 # ─────────────────────────────────────────
@@ -207,72 +207,192 @@ def _scrape_photos(page: Page) -> List[Dict]:
     Returns list of {"url": ..., "category": "general"|"menu"}.
     """
     photos = []
-    seen_urls = set()
+    seen_canonical = set()
 
-    def _collect_visible_imgs(category: str):
-        """Grab all currently visible image srcs."""
+    def _canonical(url: str) -> str:
+        """Strip resolution params to get a stable image identity."""
+        return re.sub(r"=(w\d+|h\d+|s\d+|w\d+-h\d+[^&]*).*$", "", url)
+
+    def _collect_all_imgs(category: str):
+        """Collect every Google image URL currently in the DOM (img src + data-src + srcset + background)."""
         try:
-            imgs = page.locator("img.Uf0tqf, img[src*='lh3.googleusercontent'], img[src*='gps-cs-s']").all()
-            for img in imgs:
-                src = img.get_attribute("src") or img.get_attribute("data-src") or ""
-                if not src or src.startswith("data:"):
+            raw_urls = page.evaluate("""
+                () => {
+                    let urls = [];
+                    // img tags with src / data-src
+                    document.querySelectorAll('img, [data-src]').forEach(el => {
+                        let s = el.getAttribute('data-src') || el.src || el.getAttribute('src') || '';
+                        if (s && (s.includes('googleusercontent') || s.includes('ggpht') || s.includes('lh3.google') || s.includes('gps-cs-s'))) {
+                            urls.push(s);
+                        }
+                        // srcset
+                        let ss = el.getAttribute('srcset') || '';
+                        ss.split(',').forEach(part => {
+                            let u = part.trim().split(' ')[0];
+                            if (u && (u.includes('googleusercontent') || u.includes('ggpht') || u.includes('lh3.google'))) urls.push(u);
+                        });
+                    });
+                    // background-image styles
+                    document.querySelectorAll('[style*="googleusercontent"], [style*="ggpht"], [style*="lh3.google"]').forEach(el => {
+                        let style = el.getAttribute('style') || '';
+                        let matches = Array.from(style.matchAll(/url\("?([^"')]+(?:googleusercontent|ggpht|lh3\.google)[^"')]+)"?\)/g));
+                        matches.forEach(m => urls.push(m[1]));
+                    });
+                    return urls;
+                }
+            """)
+            tiny_sz = ['w32-h32', 'w48-h48', 'w64-h64', 'w20-h20', 'w34-h34', 'w16-h16', 'w24-h24', 'w40-h40']
+            for src in raw_urls:
+                if any(sz in src for sz in tiny_sz):
                     continue
-                # Upgrade to higher resolution — replace size params
-                src = re.sub(r"=w\d+-h\d+.*$", "=w800-h600-k-no", src)
-                if src not in seen_urls:
-                    seen_urls.add(src)
-                    photos.append({"url": src, "category": category})
+                if '/a/' in src or '/a-/' in src:   # user avatar
+                    continue
+                base = _canonical(src)
+                if base not in seen_canonical:
+                    seen_canonical.add(base)
+                    high_res = base + "=w1200-h900"
+                    photos.append({"url": high_res, "category": category})
         except Exception:
             pass
 
-    try:
-        # Click the Photos button in the listing panel
-        photo_btn = page.locator(
-            "button[aria-label*='Photo'], button[jsaction*='pane.heroHeaderImage'], "
-            "[class*='gallery'] button, a[aria-label*='photo']"
-        ).first
-        photo_btn.click(timeout=5000)
-        time.sleep(2)
-    except Exception:
-        log("  ⚠️ Could not open photo panel", ok=False)
+    def _scroll_gallery():
+        """Scroll every scrollable container that has Google images (mirrors proven approach)."""
+        try:
+            page.evaluate("""
+                () => {
+                    let divs = Array.from(document.querySelectorAll('div'));
+                    for (let d of divs) {
+                        let style = window.getComputedStyle(d);
+                        if ((style.overflowY === 'auto' || style.overflowY === 'scroll')
+                            && d.scrollHeight > d.clientHeight + 50) {
+                            let imgs = d.querySelectorAll('img, [data-src]');
+                            let hasGmaps = false;
+                            for (let img of imgs) {
+                                let s = img.src || img.getAttribute('data-src') || '';
+                                if (s.includes('googleusercontent') || s.includes('ggpht') || s.includes('lh3.google')) {
+                                    hasGmaps = true;
+                                    break;
+                                }
+                            }
+                            if (hasGmaps || imgs.length > 5) {
+                                d.scrollTop = d.scrollHeight;
+                            }
+                        }
+                    }
+                    window.scrollBy(0, 1500);
+                }
+            """)
+        except Exception:
+            pass
+
+    # ── Step 1: Try to open the photo gallery ──
+    gallery_opened = False
+    open_selectors = [
+        "button[jsaction*='heroHeaderImage']",
+        "div[jsaction*='heroHeaderImage']",
+        "button[aria-label*='photo' i]",
+        "button[aria-label*='Photo']",
+        "button[jsaction*='pane.photo']",
+        "a[jsaction*='pane.photo']",
+        "button.aoRNLd",
+        "div.RZ66Rb",
+        "div.b0cq8c",
+        "[class*='gallery'] button",
+        "div[jsaction*='openPhoto']",
+    ]
+    for sel in open_selectors:
+        try:
+            btn = page.locator(sel).first
+            if btn.count() > 0:
+                btn.click(timeout=3000)
+                time.sleep(2.5)
+                gallery_opened = True
+                log("  🖼️ Photo gallery opened.")
+                break
+        except Exception:
+            pass
+
+    if not gallery_opened:
+        log("  ⚠️ Could not open photo gallery — collecting hero images only.", ok=False)
+        _collect_all_imgs("general")
+        log(f"  📸 Total photos collected: {len(photos)}")
         return photos
 
-    # ── All photos ──
-    log("  📷 Collecting 'All' photos...")
+    # ── Step 2: Try to select a cleaner gallery tab (By owner, Exterior, Interior) ──
+    log("  📷 Checking for cleaner gallery tabs...")
+    tab_clicked = False
+    cleaner_labels = [("By owner", "general"), ("Owner", "general"), ("Exterior", "general"), ("Interior", "general")]
+    for tab_label, cat in cleaner_labels:
+        try:
+            tab = page.locator(
+                f'button[aria-label*="{tab_label}" i], div[role="tab"]:has-text("{tab_label}")'
+            ).first
+            if tab.count() > 0 and tab.is_visible(timeout=1000):
+                log(f"  🎯 Found cleaner tab '{tab_label}'. Clicking it to filter out selfies...")
+                tab.click(timeout=3000)
+                time.sleep(2)
+                tab_clicked = True
+                break
+        except Exception:
+            pass
+
+    if not tab_clicked:
+        try:
+            # Fallback evaluate selector
+            tab_clicked = page.evaluate("""
+                () => {
+                    const labels = ["by owner", "owner", "exterior", "interior"];
+                    const buttons = Array.from(document.querySelectorAll('button, div[role="tab"], div[role="radio"], span'));
+                    for (let label of labels) {
+                        for (let btn of buttons) {
+                            const txt = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+                            if (txt === label || txt.includes(label)) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            """)
+            if tab_clicked:
+                log("  🎯 Clicked cleaner tab using DOM selector.")
+                time.sleep(2)
+        except Exception as e:
+            log(f"  [WARN] Failed to click cleaner tab: {e}")
+
+    # ── Step 3: Scroll and collect from the active tab ──
+    log("  📷 Scrolling gallery for photos...")
+    prev_count = 0
+    stale = 0
     for _ in range(MAX_PHOTO_SCROLL):
-        _collect_visible_imgs("general")
-        page.keyboard.press("End")
-        time.sleep(DELAY_BETWEEN_SCROLLS)
+        _scroll_gallery()
+        time.sleep(0.8)
+        _collect_all_imgs("general")
+        if len(photos) == prev_count:
+            stale += 1
+            if stale >= 4:
+                break
+        else:
+            stale = 0
+            prev_count = len(photos)
 
-    # ── Menu photos ──
-    try:
-        menu_tab = page.locator(
-            "button[aria-label*='Menu'], div[role='tab']:has-text('Menu')"
-        ).first
-        menu_tab.click(timeout=4000)
-        time.sleep(2)
-        log("  🍽️ Collecting 'Menu' photos...")
-        for _ in range(MAX_PHOTO_SCROLL):
-            _collect_visible_imgs("menu")
-            page.keyboard.press("End")
-            time.sleep(DELAY_BETWEEN_SCROLLS)
-    except Exception:
-        pass  # No menu tab — that's fine
-
-    # ── Food & Drink photos ──
-    try:
-        food_tab = page.locator(
-            "button[aria-label*='Food'], div[role='tab']:has-text('Food')"
-        ).first
-        food_tab.click(timeout=4000)
-        time.sleep(2)
-        log("  🍜 Collecting 'Food & drink' photos...")
-        for _ in range(3):
-            _collect_visible_imgs("food")
-            page.keyboard.press("End")
-            time.sleep(DELAY_BETWEEN_SCROLLS)
-    except Exception:
-        pass
+    # ── Step 4: Try 'Menu' or 'Food' if relevant ──
+    for tab_label, cat in [("Menu", "menu"), ("Food", "food")]:
+        try:
+            tab = page.locator(
+                f'button[aria-label*="{tab_label}" i], div[role="tab"]:has-text("{tab_label}")'
+            ).first
+            if tab.count() > 0 and tab.is_visible(timeout=1000):
+                tab.click(timeout=3000)
+                time.sleep(1.5)
+                for _ in range(6):
+                    _scroll_gallery()
+                    time.sleep(0.6)
+                _collect_all_imgs(cat)
+                log(f"  📷 '{tab_label}' tab: {len(photos)} total photos")
+        except Exception:
+            pass
 
     log(f"  📸 Total photos collected: {len(photos)}")
     return photos

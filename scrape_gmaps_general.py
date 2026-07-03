@@ -496,8 +496,8 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
             
             def is_large_img(url):
                 """Reject tiny user avatars or icons."""
-                # Don't scrape user profile avatars (usually /a/ format in URL path)
-                if '/a/' in url and '=s' in url:
+                # Don't scrape user profile avatars (usually /a/ or /a-/ format in URL path)
+                if '/a/' in url or '/a-/' in url:
                     return False
                 return 'w32-h32' not in url and 'w48-h48' not in url and 'w64-h64' not in url
             
@@ -541,6 +541,43 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
 
                     # --- STEP 2: If gallery opened, scroll the photo grid aggressively ---
                     if gallery_opened:
+                        # Try to click on a cleaner tab (like "By owner", "Exterior", "Interior") to filter out user selfies
+                        try:
+                            tab_clicked = False
+                            for tab_label in ["By owner", "Owner", "Exterior", "Interior"]:
+                                tab_btn = await page.get_by_role("button", name=tab_label, exact=False).first
+                                if await tab_btn.is_visible():
+                                    print(f"    Found cleaner tab: '{tab_label}'. Clicking it...")
+                                    await tab_btn.click()
+                                    await page.wait_for_timeout(3000)
+                                    tab_clicked = True
+                                    break
+                            
+                            if not tab_clicked:
+                                tab_clicked = await page.evaluate("""
+                                    () => {
+                                        const labels = ["by owner", "owner", "exterior", "interior"];
+                                        const buttons = Array.from(document.querySelectorAll('button, div[role="tab"], div[role="radio"], span'));
+                                        for (let label of labels) {
+                                            for (let btn of buttons) {
+                                                const txt = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+                                                if (txt === label || txt.includes(label)) {
+                                                    btn.click();
+                                                    return true;
+                                                }
+                                            }
+                                        }
+                                        return false;
+                                    }
+                                """)
+                                if tab_clicked:
+                                    print("    Clicked cleaner gallery tab using DOM selector.")
+                                    await page.wait_for_timeout(3000)
+                                else:
+                                    print("    No cleaner gallery tab found. Defaulting to 'All' tab.")
+                        except Exception as te:
+                            print(f"    [WARN] Failed to filter gallery tabs: {te}")
+
                         prev_img_count = 0
                         stale_rounds = 0
                         max_scroll_rounds = 80  # <-- increased from 15 to 80
@@ -699,7 +736,7 @@ async def scrape_pincode_places(browser, page, pincode: str, query: str, max_pho
                     ]):
                         continue
                     # Skip avatar/profile images
-                    if '/a/' in src and '=s' in src:
+                    if '/a/' in src or '/a-/' in src:
                         continue
                     base = canonical_img_url(src)
                     if base not in seen_canonical:

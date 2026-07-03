@@ -43,6 +43,43 @@ async def scrape_gallery_images(page, max_photos=50):
             print("    [WARN] Could not find gallery button.")
             return []
             
+        # Try to click on a cleaner tab (like "By owner", "Exterior", "Interior") to filter out user selfies
+        try:
+            tab_clicked = False
+            for tab_label in ["By owner", "Owner", "Exterior", "Interior"]:
+                tab_btn = await page.get_by_role("button", name=tab_label, exact=False).first
+                if await tab_btn.is_visible():
+                    print(f"    Found cleaner tab: '{tab_label}'. Clicking it...")
+                    await tab_btn.click()
+                    await page.wait_for_timeout(3000)
+                    tab_clicked = True
+                    break
+            
+            if not tab_clicked:
+                tab_clicked = await page.evaluate("""
+                    () => {
+                        const labels = ["by owner", "owner", "exterior", "interior"];
+                        const buttons = Array.from(document.querySelectorAll('button, div[role="tab"], div[role="radio"], span'));
+                        for (let label of labels) {
+                            for (let btn of buttons) {
+                                const txt = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+                                if (txt === label || txt.includes(label)) {
+                                    btn.click();
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                if tab_clicked:
+                    print("    Clicked cleaner gallery tab using DOM selector.")
+                    await page.wait_for_timeout(3000)
+                else:
+                    print("    No cleaner gallery tab found. Defaulting to 'All' tab.")
+        except Exception as te:
+            print(f"    [WARN] Failed to filter gallery tabs: {te}")
+            
         # Aggressive scrolling to load images
         stale_rounds = 0
         prev_img_count = 0
@@ -142,7 +179,7 @@ async def scrape_gallery_images(page, max_photos=50):
             if len(image_urls) >= max_photos:
                 break
             # Skip tiny thumbnails and avatars
-            if any(sz in src for sz in ['w32-h32', 'w48-h48', 'w64-h64', 'w20-h20', '/a/']):
+            if any(sz in src for sz in ['w32-h32', 'w48-h48', 'w64-h64', 'w20-h20', '/a/', '/a-/']):
                 continue
                 
             base = re.sub(r"=(w\d+|h\d+|s\d+|w\d+-h\d+).*$", "", src)
@@ -355,9 +392,20 @@ async def main(target_category=None, target_district=None, no_shutdown=False):
             if target_district:
                 query = query.filter(models.Listing.district.ilike(f"%{target_district}%"))
                 
+            # Use eager loading to prevent N+1 query hang
+            from sqlalchemy.orm import joinedload
+            query = query.options(joinedload(models.Listing.images))
+                
             # Query IDs first to avoid keeping model instances open and detached
             listings = query.all()
-            target_ids = [L.id for L in listings if len(L.images) < 20]
+            target_ids = []
+            for L in listings:
+                # Count only valid real images (exclude flags/placeholders)
+                valid_images_count = len([img for img in L.images if img.image_path not in ["NO_IMAGES_FOUND_FLAG", "CRASH_FLAG"]])
+                if valid_images_count < 20:
+                    # Don't try again if it has a CRASH_FLAG (to prevent infinite crash loops)
+                    if not any(img.image_path == "CRASH_FLAG" for img in L.images):
+                        target_ids.append(L.id)
             
             if not target_ids:
                 if not no_shutdown:
@@ -384,8 +432,9 @@ async def main(target_category=None, target_district=None, no_shutdown=False):
                     db_iter.close()
                     continue
                 
-                # Check if someone else updated it in the meantime
-                if len(listing.images) >= 20:
+                # Check if someone else updated it in the meantime (only count valid real images)
+                valid_images_count = len([img for img in listing.images if img.image_path not in ["NO_IMAGES_FOUND_FLAG", "CRASH_FLAG"]])
+                if valid_images_count >= 20:
                     db_iter.close()
                     continue
 
