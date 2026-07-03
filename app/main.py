@@ -10,6 +10,8 @@ from config import settings
 from app.database import engine, Base
 from app.api import sync, categories  # 🟢 ADDED CATEGORIES HERE
 from app.api import gmaps as gmaps_api  # 🟢 Google Maps scraper
+from app.api import simple_scrape as simple_scrape_api  # 🟢 Simple one-shot scraper
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -33,6 +35,8 @@ async def add_security_headers(request: Request, call_next):
 app.include_router(sync.router, prefix="/api/v1")
 app.include_router(categories.router)
 app.include_router(gmaps_api.router)  # Google Maps scraper
+app.include_router(simple_scrape_api.router)  # Simple one-shot scraper
+
 
 if os.path.exists("data/uploaded_images"):
     app.mount("/uploaded_images", StaticFiles(directory="data/uploaded_images"), name="uploaded_images")
@@ -66,6 +70,19 @@ def get_images_page():
             return HTMLResponse(content=f.read())
     from fastapi import HTTPException
     raise HTTPException(status_code=404, detail="images.html not found")
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/scraper", response_class=HTMLResponse)
+@app.get("/scraper.html", response_class=HTMLResponse)
+def get_scraper_page():
+    if os.path.exists("scraper.html"):
+        with open("scraper.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    # fallback JSON
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"status": "running", "message": "JustDial API is ready! Open /scraper.html"})
+
+
 
 from app.database import SessionLocal
 from app import models
