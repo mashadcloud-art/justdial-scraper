@@ -36,11 +36,18 @@ app.include_router(gmaps_api.router)  # Google Maps scraper
 
 if os.path.exists("data/uploaded_images"):
     app.mount("/uploaded_images", StaticFiles(directory="data/uploaded_images"), name="uploaded_images")
+    app.mount("/api/uploaded_images", StaticFiles(directory="data/uploaded_images"), name="api_uploaded_images")
+    app.mount("/api/v1/uploaded_images", StaticFiles(directory="data/uploaded_images"), name="api_v1_uploaded_images")
+    app.mount("/api/data/uploaded_images", StaticFiles(directory="data/uploaded_images"), name="api_data_uploaded_images")
 elif os.path.exists("uploaded_images"):
     app.mount("/uploaded_images", StaticFiles(directory="uploaded_images"), name="uploaded_images")
+    app.mount("/api/uploaded_images", StaticFiles(directory="uploaded_images"), name="api_uploaded_images")
+    app.mount("/api/v1/uploaded_images", StaticFiles(directory="uploaded_images"), name="api_v1_uploaded_images")
 
 if os.path.exists("scraped_images"):
     app.mount("/scraped_images", StaticFiles(directory="scraped_images"), name="scraped_images")
+    app.mount("/api/scraped_images", StaticFiles(directory="scraped_images"), name="api_scraped_images")
+    app.mount("/api/v1/scraped_images", StaticFiles(directory="scraped_images"), name="api_v1_scraped_images")
 
 if os.path.exists("simple_scrape_results"):
     app.mount("/simple_scrape_results", StaticFiles(directory="simple_scrape_results"), name="simple_scrape_results")

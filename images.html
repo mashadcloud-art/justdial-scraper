@@ -219,9 +219,10 @@
                     // Map to scraped_data schema
                     allPlaces = listingsList.map(item => {
                         const imgUrls = (item.images || []).map(img => {
-                            const path = img.image_path || '';
-                            if (path.startsWith('uploaded_images') || path.startsWith('data/')) {
-                                return `/${path}`;
+                            const path = img.path || img.image_path || '';
+                            if (path.startsWith('uploaded_images') || path.startsWith('data/') || path.startsWith('scraped_images')) {
+                                const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+                                return `/api/${cleanPath}`;
                             }
                             return path;
                         });
