@@ -210,7 +210,7 @@
             } catch (error) {
                 // Try fallback to live database API
                 try {
-                    const fallbackResponse = await fetch('/api/v1/listings?limit=500');
+                    const fallbackResponse = await fetch('/api/v1/listings?limit=500&sort=newest_images');
                     if (!fallbackResponse.ok) throw new Error('Database API is offline');
                     const respData = await fallbackResponse.json();
                     

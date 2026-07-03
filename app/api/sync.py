@@ -87,6 +87,45 @@ def get_db_status(db: Session = Depends(get_db)):
             "error": str(e)
         }
 
+@router.get("/proxy-image")
+async def proxy_image(url: str):
+    import httpx
+    from fastapi.responses import StreamingResponse
+    if not url:
+        raise HTTPException(status_code=400, detail="URL parameter is required")
+    if not any(domain in url for domain in ["googleusercontent.com", "google.com", "gstatic.com"]):
+        raise HTTPException(status_code=400, detail="Only Google domains are allowed for proxying")
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        client = httpx.AsyncClient()
+        async def image_stream():
+            try:
+                async with client.stream("GET", url, headers=headers, timeout=10.0) as r:
+                    if r.status_code != 200:
+                        yield b""
+                        return
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+            finally:
+                await client.aclose()
+        content_type = "image/jpeg"
+        if ".png" in url.lower():
+            content_type = "image/png"
+        elif ".webp" in url.lower():
+            content_type = "image/webp"
+        return StreamingResponse(
+            image_stream(),
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to proxy image: {str(e)}")
+
 @router.post("/db-config")
 def update_db_config(payload: dict):
     from app_config import CONFIG_FILE, save_config
@@ -425,6 +464,8 @@ def get_listings(
     category: Optional[str] = None,
     normalized_category: Optional[str] = None,
     search: Optional[str] = None,
+    source: Optional[str] = None,
+    sort: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     # 1. Search Professionals Union
@@ -481,6 +522,11 @@ def get_listings(
             models.Listing.category.ilike(f"%{category}%") |
             models.Listing.subcategory.ilike(f"%{category}%")
         )
+    if source:
+        if source.lower() == "google":
+            query = query.filter(models.Listing.jd_url.ilike("%google.com/maps%"))
+        elif source.lower() == "justdial":
+            query = query.filter(models.Listing.jd_url.ilike("%justdial.com%"))
     if search:
         # Split search into individual words for smarter matching across different columns
         keywords = search.strip().split()
@@ -499,20 +545,27 @@ def get_listings(
                 )
             )
         
-    listings = query.options(
+    query = query.options(
         selectinload(models.Listing.images),
         selectinload(models.Listing.menu_items),
         selectinload(models.Listing.amenities)
-    ).order_by(models.Listing.id.desc()).offset((page - 1) * limit).limit(limit).all()
+    )
+
+    if sort == "newest_images":
+        from sqlalchemy import func
+        listings = query.join(models.ListingImage).group_by(models.Listing.id).order_by(func.max(models.ListingImage.id).desc()).offset((page - 1) * limit).limit(limit).all()
+    else:
+        listings = query.order_by(models.Listing.id.desc()).offset((page - 1) * limit).limit(limit).all()
     
     result = []
     for r in listings:
-        primary_img = next((img.image_path for img in r.images if img.is_primary), None)
-        if not primary_img and r.images: primary_img = r.images[0].image_path
+        valid_images = [img for img in r.images if img.image_path and img.image_path not in ["NO_IMAGES_FOUND_FLAG", "CRASH_FLAG"]]
+        primary_img = next((img.image_path for img in valid_images if img.is_primary), None)
+        if not primary_img and valid_images: primary_img = valid_images[0].image_path
             
         menu_list = [{"name": m.name, "price": m.price, "is_veg": m.is_veg} for m in r.menu_items]
         amenities_list = [{"category": a.category, "value": a.value} for a in r.amenities]
-        images_list = [{"path": img.image_path, "category": img.category or "general"} for img in r.images]
+        images_list = [{"path": img.image_path, "category": img.category or "general"} for img in valid_images]
         
         result.append({
             "id": getattr(r, "id", None), "name": getattr(r, "name", ""), "phone": getattr(r, "phone", ""), "whatsapp": getattr(r, "whatsapp", ""), "address": getattr(r, "address", ""),
