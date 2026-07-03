@@ -45,10 +45,14 @@ if os.path.exists("scraped_images"):
 if os.path.exists("simple_scrape_results"):
     app.mount("/simple_scrape_results", StaticFiles(directory="simple_scrape_results"), name="simple_scrape_results")
     app.mount("/api/v1/simple_scrape_results", StaticFiles(directory="simple_scrape_results"), name="api_simple_scrape_results")
+    app.mount("/api/simple_scrape_results", StaticFiles(directory="simple_scrape_results"), name="api_short_simple_scrape_results")
 
 from fastapi.responses import HTMLResponse
 @app.get("/images.html", response_class=HTMLResponse)
 @app.get("/api/v1/images.html", response_class=HTMLResponse)
+@app.get("/api/images", response_class=HTMLResponse)
+@app.get("/api/image", response_class=HTMLResponse)
+@app.get("/api/img", response_class=HTMLResponse)
 def get_images_page():
     if os.path.exists("images.html"):
         with open("images.html", "r", encoding="utf-8") as f:
