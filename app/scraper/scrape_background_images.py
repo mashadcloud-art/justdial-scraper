@@ -3,9 +3,62 @@ import os
 import asyncio
 import re
 import argparse
+import httpx
+import hashlib
+import time
+from dotenv import load_dotenv
 
 # Add parent directory to path so imports work correctly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+load_dotenv()
+
+# Cloudinary Setup
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+cloudinary_url = os.getenv("CLOUDINARY_URL")
+if cloudinary_url and not (CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET):
+    try:
+        if cloudinary_url.startswith("cloudinary://"):
+            auth_part, cloud_name = cloudinary_url[13:].split("@")
+            api_key, api_secret = auth_part.split(":")
+            CLOUDINARY_CLOUD_NAME = cloud_name
+            CLOUDINARY_API_KEY = api_key
+            CLOUDINARY_API_SECRET = api_secret
+    except Exception as e:
+        print(f"[WARN] Failed to parse CLOUDINARY_URL: {e}")
+
+def sign_params(params, api_secret):
+    sorted_items = sorted(f"{k}={v}" for k, v in params.items() if v is not None and v != "")
+    query_string = "&".join(sorted_items) + api_secret
+    return hashlib.sha1(query_string.encode("utf-8")).hexdigest()
+
+async def upload_to_cloudinary(client, image_url, folder_name="gmaps_scrapes"):
+    if not CLOUDINARY_CLOUD_NAME or not CLOUDINARY_API_KEY or not CLOUDINARY_API_SECRET:
+        return None
+    url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload"
+    timestamp = int(time.time())
+    params_to_sign = {
+        "folder": folder_name,
+        "timestamp": timestamp
+    }
+    signature = sign_params(params_to_sign, CLOUDINARY_API_SECRET)
+    data = {
+        "file": image_url,
+        "api_key": CLOUDINARY_API_KEY,
+        "timestamp": timestamp,
+        "signature": signature,
+        "folder": folder_name
+    }
+    try:
+        response = await client.post(url, data=data, timeout=30.0)
+        if response.status_code == 200:
+            return response.json().get("secure_url")
+    except Exception:
+        pass
+    return None
 
 from sqlalchemy.orm import joinedload
 from app.database import SessionLocal
@@ -461,7 +514,23 @@ async def main(target_category=None, target_district=None, no_shutdown=False):
                             print(f"  -> Extracted {len(new_image_urls)} new images! Saving to DB...")
                             existing_urls = {img.image_path for img in listing.images}
                             
-                            for img_url in new_image_urls:
+                            # Upload to Cloudinary if set up
+                            uploaded_urls = []
+                            if CLOUDINARY_CLOUD_NAME:
+                                safe_name = "".join(c for c in listing_name_val if c.isalnum() or c in (' ', '_')).strip()
+                                folder_name = f"gmaps_scrapes/{safe_name.replace(' ', '_')}"
+                                print(f"  -> [Cloudinary] Syncing {len(new_image_urls)} images...")
+                                async with httpx.AsyncClient() as client:
+                                    for img_url in new_image_urls:
+                                        c_url = await upload_to_cloudinary(client, img_url, folder_name)
+                                        if c_url:
+                                            uploaded_urls.append(c_url)
+                                        else:
+                                            uploaded_urls.append(img_url)  # Fallback to raw if upload fails
+                            else:
+                                uploaded_urls = new_image_urls
+                            
+                            for img_url in uploaded_urls:
                                 if img_url not in existing_urls:
                                     db_iter.add(models.ListingImage(
                                         listing_id=listing_id_val,
