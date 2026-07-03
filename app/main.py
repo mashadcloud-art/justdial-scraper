@@ -58,8 +58,23 @@ from app.database import SessionLocal
 from app import models
 from sqlalchemy import func
 
+import subprocess
+import sys
+import psutil
+from fastapi import HTTPException
+
 @app.get("/api/v1/daemon/status")
 def get_daemon_status():
+    is_running = False
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmd = proc.info.get('cmdline') or []
+            if any('scrape_background_images.py' in part for part in cmd):
+                is_running = True
+                break
+        except Exception:
+            pass
+
     db = SessionLocal()
     try:
         total_listings = db.query(models.Listing).count()
@@ -89,8 +104,45 @@ def get_daemon_status():
         "total_listings": total_listings,
         "pending_count": pending_count,
         "completed_count": completed_count,
+        "is_running": is_running,
         "logs": logs
     }
+
+@app.post("/api/v1/daemon/start")
+def start_daemon():
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmd = proc.info.get('cmdline') or []
+            if any('scrape_background_images.py' in part for part in cmd):
+                return {"status": "already_running"}
+        except Exception:
+            pass
+
+    try:
+        python_exe = sys.executable
+        log_file_path = "bg_scraper_logs.txt"
+        log_file = open(log_file_path, "a", encoding="utf-8")
+        subprocess.Popen(
+            [python_exe, "-u", "app/scraper/scrape_background_images.py", "--no-shutdown"],
+            stdout=log_file,
+            stderr=subprocess.STDOUT
+        )
+        return {"status": "started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start daemon: {e}")
+
+@app.post("/api/v1/daemon/stop")
+def stop_daemon():
+    stopped = False
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmd = proc.info.get('cmdline') or []
+            if any('scrape_background_images.py' in part for part in cmd):
+                proc.terminate()
+                stopped = True
+        except Exception:
+            pass
+    return {"status": "stopped" if stopped else "not_running"}
 
 @app.get("/")
 def root():

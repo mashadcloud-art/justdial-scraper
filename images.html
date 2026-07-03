@@ -55,6 +55,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;" onclick="toggleDaemonLogs()">
                 <h3 style="color: #333; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
                     ⚙️ Deep Background Daemon Status
+                    <span id="daemon-active-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ccc;"></span>
                 </h3>
                 <div style="display: flex; gap: 15px; align-items: center;">
                     <span id="daemon-stats" style="font-weight: bold; color: #555; font-size: 14px;">Loading...</span>
@@ -63,6 +64,11 @@
             </div>
             
             <div id="daemon-body" style="display: block; margin-top: 15px;">
+                <!-- Control Buttons -->
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <button onclick="controlDaemon('start'); event.stopPropagation();" id="daemon-start-btn" style="background: #137333; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">▶ Start Background Scraper</button>
+                    <button onclick="controlDaemon('stop'); event.stopPropagation();" id="daemon-stop-btn" style="background: #c5221f; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">⏹ Stop Scraper</button>
+                </div>
                 <div style="background: #e0e0e0; border-radius: 4px; height: 10px; position: relative; overflow: hidden; margin-bottom: 12px;">
                     <div id="daemon-progress-bar" style="background: #ff6d00; width: 0%; height: 100%; transition: width 0.5s;"></div>
                 </div>
@@ -114,6 +120,25 @@
             }
         }
 
+        async function controlDaemon(action) {
+            try {
+                const startBtn = document.getElementById('daemon-start-btn');
+                const stopBtn = document.getElementById('daemon-stop-btn');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                
+                const response = await fetch(`/api/v1/daemon/${action}`, { method: 'POST' });
+                const result = await response.json();
+                
+                updateDaemonStatus();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                document.getElementById('daemon-start-btn').disabled = false;
+                document.getElementById('daemon-stop-btn').disabled = false;
+            }
+        }
+
         async function updateDaemonStatus() {
             try {
                 const response = await fetch('/api/v1/daemon/status');
@@ -123,6 +148,7 @@
                 const total = data.total_listings || 0;
                 const pending = data.pending_count || 0;
                 const completed = data.completed_count || 0;
+                const isRunning = data.is_running || false;
                 
                 const pct = total > 0 ? ((completed / total) * 100).toFixed(1) : 0;
                 
@@ -132,6 +158,17 @@
                 `;
                 
                 document.getElementById('daemon-progress-bar').style.width = `${pct}%`;
+                
+                const dot = document.getElementById('daemon-active-dot');
+                if (isRunning) {
+                    dot.style.background = '#137333'; // Green
+                    document.getElementById('daemon-start-btn').style.display = 'none';
+                    document.getElementById('daemon-stop-btn').style.display = 'inline-block';
+                } else {
+                    dot.style.background = '#c5221f'; // Red
+                    document.getElementById('daemon-start-btn').style.display = 'inline-block';
+                    document.getElementById('daemon-stop-btn').style.display = 'none';
+                }
                 
                 const logsBox = document.getElementById('daemon-logs-box');
                 if (data.logs && data.logs.length > 0) {
