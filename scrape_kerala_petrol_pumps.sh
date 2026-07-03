@@ -10,7 +10,8 @@ SCRIPT="scrape_gmaps_general.py"
 QUERY="petrol pumps"
 CATEGORY="Petrol Pumps"
 NORM_CATEGORY="Petrol Pumps"
-MAX_PHOTOS=5
+MAX_PHOTOS=1
+
 LOG="kerala_petrol_pumps_cloud.log"
 
 DISTRICTS=(
