@@ -17,6 +17,57 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="JustDial Desktop Scraper API")
 
+# ─── Auto-Start JD Scraper on Server Boot ────────────────────────────────────
+import subprocess
+import json as _json
+
+_AUTO_SCRAPE_CONFIG = "auto_scrape_config.json"
+_DEFAULT_SCRAPE_CONFIG = {
+    "enabled": True,
+    "district": "Kannur",
+    "category": "Restaurants",
+    "pages": 10
+}
+
+@app.on_event("startup")
+async def auto_start_jd_scraper():
+    """Automatically start the JustDial scraper on server boot if enabled."""
+    config = _DEFAULT_SCRAPE_CONFIG.copy()
+    if os.path.exists(_AUTO_SCRAPE_CONFIG):
+        try:
+            with open(_AUTO_SCRAPE_CONFIG) as f:
+                config.update(_json.load(f))
+        except Exception:
+            pass
+
+    if not config.get("enabled", True):
+        print("[AutoScrape] Disabled via config. Skipping auto-start.")
+        return
+
+    district = config["district"]
+    category = config["category"]
+    pages = config.get("pages", 10)
+    log_file = f"jd_{district.lower()}_{category.lower().replace(' ', '_')}.log"
+
+    print(f"[AutoScrape] 🚀 Auto-starting JD scraper: {district} / {category} (pages={pages}) → {log_file}")
+    try:
+        python_exe = sys.executable
+        with open(log_file, "a", encoding="utf-8") as lf:
+            subprocess.Popen(
+                [python_exe, "-u", "jd_api_scraper.py",
+                 "--district", district,
+                 "--category", category,
+                 "--pages", str(pages)],
+                stdout=lf,
+                stderr=subprocess.STDOUT
+            )
+        print(f"[AutoScrape] ✅ Scraper launched. Logs → {log_file}")
+    except Exception as e:
+        print(f"[AutoScrape] ❌ Failed to auto-start scraper: {e}")
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

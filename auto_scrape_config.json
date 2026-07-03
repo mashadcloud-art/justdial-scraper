@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "district": "Kannur",
+  "category": "Restaurants",
+  "pages": 10,
+  "_note": "Set enabled=false to stop auto-start. Change district/category to switch scrape target."
+}
