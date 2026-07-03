@@ -202,20 +202,50 @@
         async function loadData() {
             try {
                 const response = await fetch('simple_scrape_results/scraped_data.json');
-                if (!response.ok) throw new Error('Failed to load');
+                if (!response.ok) throw new Error('Failed to load local JSON file');
                 allPlaces = await response.json();
                 updateStats();
                 currentPage = 1;
                 renderPlaces();
             } catch (error) {
-                document.getElementById('places').innerHTML = `
-                    <div style="grid-column: 1/-1; text-align: center; padding: 50px; color: #666;">
-                        <h3>Couldn't load results</h3>
-                        <p>Make sure the scraper has run and saved data to simple_scrape_results/scraped_data.json</p>
-                        <p>Error: ${error.message}</p>
-                        <button class="page-btn" onclick="loadData()">Try Again</button>
-                    </div>
-                `;
+                // Try fallback to live database API
+                try {
+                    const fallbackResponse = await fetch('/api/v1/listings?limit=500');
+                    if (!fallbackResponse.ok) throw new Error('Database API is offline');
+                    const respData = await fallbackResponse.json();
+                    
+                    const listingsList = Array.isArray(respData) ? respData : (respData.data || []);
+                    
+                    // Map to scraped_data schema
+                    allPlaces = listingsList.map(item => {
+                        const imgUrls = (item.images || []).map(img => {
+                            const path = img.image_path || '';
+                            if (path.startsWith('uploaded_images') || path.startsWith('data/')) {
+                                return `/${path}`;
+                            }
+                            return path;
+                        });
+                        
+                        return {
+                            place_name: item.name || 'Unnamed Place',
+                            status: 'success', 
+                            image_urls: imgUrls,
+                            place_url: item.jd_url || ''
+                        };
+                    });
+                    
+                    updateStats();
+                    currentPage = 1;
+                    renderPlaces();
+                } catch (fallbackError) {
+                    document.getElementById('places').innerHTML = `
+                        <div style="grid-column: 1/-1; text-align: center; padding: 50px; color: #666;">
+                            <h3>Couldn't load results</h3>
+                            <p>Error: ${fallbackError.message}</p>
+                            <button class="page-btn" onclick="loadData()">Try Again</button>
+                        </div>
+                    `;
+                }
             }
         }
 
