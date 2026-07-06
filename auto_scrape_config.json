@@ -1,7 +1,7 @@
 {
-  "enabled": false,
-  "district": "Rajasthan",
-  "category": "Rentals",
+  "enabled": true,
+  "district": "Wayanad",
+  "category": "Taxi Services",
   "pages": 10,
   "subcategories": true,
   "_note": "Set enabled=false to stop auto-start. Change district/category to switch scrape target."

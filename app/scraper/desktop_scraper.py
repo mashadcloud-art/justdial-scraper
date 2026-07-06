@@ -233,7 +233,7 @@ def extract_menu(driver) -> List[Dict]:
     menu_items = []
     seen = set()
 
-    click_if_present(driver, "//*[contains(text(), 'Order Online Menu') or @id='dochead']", pause=1.5)
+    click_if_present(driver, "//*[contains(text(), 'Price List') or contains(text(), 'Products') or contains(text(), 'Menu') or contains(text(), 'Order Online Menu') or @id='dochead']", pause=1.5)
     click_all_present(driver, "//button[contains(@class, 'accordion_viewall')]", pause=0.5)
     
     # Wait a bit longer for all accordions to load their content
