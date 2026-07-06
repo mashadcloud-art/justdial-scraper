@@ -823,7 +823,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     except Exception:
         checkpoint = {}
 
-    semaphore = asyncio.Semaphore(15)
+    semaphore = asyncio.Semaphore(5)
     
     connector = aiohttp.TCPConnector(limit=30, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:

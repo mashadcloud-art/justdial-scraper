@@ -254,6 +254,81 @@ function Dashboard() {
   const [importingUrl, setImportingUrl] = useState(false);
   const [categoryTree, setCategoryTree] = useState<any[]>([]);
 
+  // Scraped today breakdown modal states
+  const [todayBreakdownOpen, setTodayBreakdownOpen] = useState(false);
+  const [todayBreakdownData, setTodayBreakdownData] = useState<{ 
+    by_city: { city: string, count: number }[], 
+    by_category: { category: string, count: number }[],
+    by_combo: { city: string, category: string, count: number }[]
+  }>({ by_city: [], by_category: [], by_combo: [] });
+  const [loadingTodayBreakdown, setLoadingTodayBreakdown] = useState(false);
+  const [breakdownTab, setBreakdownTab] = useState<'city' | 'category' | 'combo'>('city');
+
+  async function fetchTodayBreakdown() {
+    setLoadingTodayBreakdown(true);
+    try {
+      const res = await fetch(`${API}/stats/scraped-today-breakdown`);
+      if (res.ok) {
+        const data = await res.json();
+        setTodayBreakdownData(data);
+      }
+    } catch { /* ignore */ }
+    setLoadingTodayBreakdown(false);
+  }
+
+  function openTodayBreakdown() {
+    setTodayBreakdownOpen(true);
+    fetchTodayBreakdown();
+  }
+
+  // ListingsManager preset filters
+  const [listingsStatePreset, setListingsStatePreset] = useState<string | undefined>(undefined);
+  const [listingsDistrictPreset, setListingsDistrictPreset] = useState<string | undefined>(undefined);
+  const [listingsCategoryPreset, setListingsCategoryPreset] = useState<string | undefined>(undefined);
+  const [listingsTodayOnlyPreset, setListingsTodayOnlyPreset] = useState<boolean>(false);
+
+  function filterByBreakdownCity(cityName: string) {
+    let foundState = "Kerala";
+    for (const [sName, districtsList] of Object.entries(CITIES)) {
+      if (Array.isArray(districtsList) && districtsList.includes(cityName)) {
+        foundState = sName;
+        break;
+      }
+    }
+    setListingsStatePreset(foundState);
+    setListingsDistrictPreset(cityName);
+    setListingsCategoryPreset("All");
+    setListingsTodayOnlyPreset(true);
+    setActiveTab("listings");
+    setTodayBreakdownOpen(false);
+  }
+
+  function filterByBreakdownCategory(categoryName: string) {
+    setListingsStatePreset("All");
+    setListingsDistrictPreset("All");
+    setListingsCategoryPreset(categoryName);
+    setListingsTodayOnlyPreset(true);
+    setActiveTab("listings");
+    setTodayBreakdownOpen(false);
+  }
+
+  function filterByBreakdownCombo(cityName: string, categoryName: string) {
+    let foundState = "Kerala";
+    for (const [sName, districtsList] of Object.entries(CITIES)) {
+      if (Array.isArray(districtsList) && districtsList.includes(cityName)) {
+        foundState = sName;
+        break;
+      }
+    }
+    setListingsStatePreset(foundState);
+    setListingsDistrictPreset(cityName);
+    setListingsCategoryPreset(categoryName);
+    setListingsTodayOnlyPreset(true);
+    setActiveTab("listings");
+    setTodayBreakdownOpen(false);
+  }
+
+
   // Proxy state variables
   const [proxyRunning, setProxyRunning] = useState(false);
   const [phoneProxy, setPhoneProxy] = useState("Unknown");
@@ -1472,7 +1547,7 @@ function Dashboard() {
               /* Maximized: Responsive grid */
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCardLg label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-4" />} live />
-                <StatCardLg label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-4" />} />
+                <StatCardLg label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-4" />} onClick={openTodayBreakdown} />
                 <StatCardLg label="Images Collected" value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-4" />} />
                 <StatCardLg label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-4" />} />
               </div>
@@ -1480,7 +1555,7 @@ function Dashboard() {
               /* Default: Responsive horizontal row */
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 <StatCard label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-3.5" />} live />
-                <StatCard label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-3.5" />} />
+                <StatCard label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-3.5" />} onClick={openTodayBreakdown} />
                 <StatCard label="Images"           value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-3.5" />} />
                 <StatCard label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-3.5" />} />
               </div>
@@ -2744,6 +2819,10 @@ function Dashboard() {
                 CITIES={CITIES} 
                 SUBCATEGORIES={SUBCATEGORIES} 
                 states={STATES} 
+                initialState={listingsStatePreset}
+                initialDistrict={listingsDistrictPreset}
+                initialCategory={listingsCategoryPreset}
+                initialTodayOnly={listingsTodayOnlyPreset}
               />
             )}
 
@@ -3075,6 +3154,144 @@ function Dashboard() {
             </div>
             <div className="px-4 py-2.5 border-t border-border text-[10px] text-muted-foreground">
               Select a category then click Start Scraping
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Scraped Today Breakdown Modal */}
+      {todayBreakdownOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-xl" onClick={() => setTodayBreakdownOpen(false)}>
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-[520px] max-w-[90%] overflow-hidden flex flex-col max-h-[80%]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <Zap className="size-4 text-brand shrink-0 animate-pulse" />
+              <span className="text-sm font-semibold">Scraped Today Breakdown</span>
+              <span className="text-xs text-muted-foreground font-mono">({totalScraped} total)</span>
+              <button onClick={() => setTodayBreakdownOpen(false)} className="ml-auto size-6 flex items-center justify-center rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                <X className="size-3.5" />
+              </button>
+            </div>
+            
+            {/* Tabs */}
+            <div className="flex border-b border-border bg-muted/20 px-4 py-2 gap-2">
+              <button
+                onClick={() => setBreakdownTab('city')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                  breakdownTab === 'city'
+                    ? "bg-brand text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                By City/District
+              </button>
+              <button
+                onClick={() => setBreakdownTab('category')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                  breakdownTab === 'category'
+                    ? "bg-brand text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                By Category
+              </button>
+              <button
+                onClick={() => setBreakdownTab('combo')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                  breakdownTab === 'combo'
+                    ? "bg-brand text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                By City + Category
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-muted/10 min-h-[250px]">
+              {loadingTodayBreakdown ? (
+                <div className="h-full flex flex-col items-center justify-center py-12 text-muted-foreground text-xs gap-2">
+                  <span className="size-4 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+                  Loading statistics...
+                </div>
+              ) : breakdownTab === 'city' ? (
+                (todayBreakdownData?.by_city || []).length === 0 ? (
+                  <p className="text-muted-foreground text-center py-12 text-xs">No listings scraped today yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {(todayBreakdownData?.by_city || []).map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => filterByBreakdownCity(item.city)}
+                        className="flex justify-between items-center py-2 px-3 rounded-lg hover:bg-accent/40 cursor-pointer transition-colors"
+                      >
+                        <span className="text-xs font-semibold text-foreground">{item.city}</span>
+                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand group-hover:bg-brand group-hover:text-white transition-colors">{item.count} listings</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : breakdownTab === 'category' ? (
+                (todayBreakdownData?.by_category || []).length === 0 ? (
+                  <p className="text-muted-foreground text-center py-12 text-xs">No listings scraped today yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {(todayBreakdownData?.by_category || []).map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => filterByBreakdownCategory(item.category)}
+                        className="flex justify-between items-center py-2 px-3 rounded-lg hover:bg-accent/40 cursor-pointer transition-colors"
+                      >
+                        <span className="text-xs font-semibold text-foreground capitalize">{item.category}</span>
+                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand group-hover:bg-brand group-hover:text-white transition-colors">{item.count} listings</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                (todayBreakdownData?.by_combo || []).length === 0 ? (
+                  <p className="text-muted-foreground text-center py-12 text-xs">No listings scraped today yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {(todayBreakdownData?.by_combo || []).map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => filterByBreakdownCombo(item.city, item.category)}
+                        className="flex justify-between items-center py-2 px-3 rounded-lg hover:bg-accent/40 cursor-pointer transition-colors"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-foreground">{item.city}</span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{item.category}</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand group-hover:bg-brand group-hover:text-white transition-colors">{item.count} listings</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+                        className="flex justify-between items-center py-2 px-3 rounded-lg hover:bg-accent/40 cursor-pointer transition-colors"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-foreground">{item.city}</span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{item.category}</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand group-hover:bg-brand group-hover:text-white transition-colors">{item.count} listings</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="px-5 py-2.5 border-t border-border flex items-center justify-between">
+              <span className="text-[10px] font-mono text-muted-foreground/60 font-medium">Data is live from Supabase</span>
+              <button
+                onClick={fetchTodayBreakdown}
+                className="text-[10px] text-brand hover:underline font-semibold"
+              >
+                Refresh Data
+              </button>
             </div>
           </div>
         </div>
@@ -3547,9 +3764,15 @@ function NavItem({ icon, label, active, onClick, collapsed, dark }: {
   );
 }
 
-function StatCard({ label, value, trend, icon, live }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean }) {
+function StatCard({ label, value, trend, icon, live, onClick }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void }) {
   return (
-    <div className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all">
+    <div 
+      onClick={onClick}
+      className={cn(
+        "p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all",
+        onClick && "cursor-pointer hover:bg-accent/40 active:scale-[0.98] transition-transform duration-100"
+      )}
+    >
       <div className="flex items-start justify-between mb-1.5">
         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest leading-tight">{label}</span>
         <div className="size-5 rounded-md bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>
@@ -3563,9 +3786,15 @@ function StatCard({ label, value, trend, icon, live }: { label: string; value: s
   );
 }
 
-function StatCardLg({ label, value, trend, icon, live }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean }) {
+function StatCardLg({ label, value, trend, icon, live, onClick }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void }) {
   return (
-    <div className="p-5 rounded-2xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all">
+    <div 
+      onClick={onClick}
+      className={cn(
+        "p-5 rounded-2xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all",
+        onClick && "cursor-pointer hover:bg-accent/40 active:scale-[0.98] transition-transform duration-100"
+      )}
+    >
       <div className="flex items-start justify-between mb-3">
         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</span>
         <div className="size-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>

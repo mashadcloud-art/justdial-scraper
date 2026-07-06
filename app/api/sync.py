@@ -466,6 +466,7 @@ def get_listings(
     search: Optional[str] = None,
     source: Optional[str] = None,
     sort: Optional[str] = None,
+    today_only: Optional[bool] = False,
     db: Session = Depends(get_db)
 ):
     # 1. Search Professionals Union
@@ -508,6 +509,11 @@ def get_listings(
 
     # Standard Listing Query Fallback
     query = db.query(models.Listing)
+    
+    if today_only:
+        import datetime
+        today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+        query = query.filter(models.Listing.scraped_at >= today_start)
     
     if state:
         query = query.filter(models.Listing.state.ilike(f"%{state}%"))
@@ -615,6 +621,30 @@ def get_stats(db: Session = Depends(get_db)):
         "total_menu_items": total_menu_items,
         "scraped_today": scraped_today,
         "category_breakdown": category_breakdown
+    }
+
+@router.get("/stats/scraped-today-breakdown")
+def get_scraped_today_breakdown(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    import datetime
+    today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    
+    city_counts = db.query(
+        models.Listing.district, func.count(models.Listing.id)
+    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.district).order_by(func.count(models.Listing.id).desc()).all()
+    
+    cat_counts = db.query(
+        models.Listing.category, func.count(models.Listing.id)
+    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
+    
+    combo_counts = db.query(
+        models.Listing.district, models.Listing.category, func.count(models.Listing.id)
+    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.district, models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
+    
+    return {
+        "by_city": [{"city": (city or "Unknown"), "count": count} for city, count in city_counts],
+        "by_category": [{"category": (cat or "Unknown"), "count": count} for cat, count in cat_counts],
+        "by_combo": [{"city": (city or "Unknown"), "category": (cat or "Unknown"), "count": count} for city, cat, count in combo_counts]
     }
 
 # ==========================================

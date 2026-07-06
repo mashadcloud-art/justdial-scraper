@@ -10,18 +10,44 @@ export default function ListingsManager({
   CITIES,
   SUBCATEGORIES,
   states,
+  initialState,
+  initialDistrict,
+  initialCategory,
+  initialTodayOnly = false,
 }: {
   API: string;
   CITIES: Record<string, string[]>;
   SUBCATEGORIES: Record<string, string[]>;
   states: string[];
+  initialState?: string;
+  initialDistrict?: string;
+  initialCategory?: string;
+  initialTodayOnly?: boolean;
 }) {
-  const [state, setState] = useState(states[0] || "");
-  const [district, setDistrict] = useState("All");
+  const [state, setState] = useState(initialState || states[0] || "");
+  const [district, setDistrict] = useState(initialDistrict || "All");
   const [mainCat, setMainCat] = useState("Restaurants");
-  const [subCat, setSubCat] = useState("All");
+  const [subCat, setSubCat] = useState(initialCategory || "All");
   const [source, setSource] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [todayOnly, setTodayOnly] = useState(initialTodayOnly);
+
+  // Sync props when they change (e.g. from parent modal clicks)
+  useEffect(() => {
+    if (initialState) setState(initialState);
+  }, [initialState]);
+
+  useEffect(() => {
+    if (initialDistrict) setDistrict(initialDistrict);
+  }, [initialDistrict]);
+
+  useEffect(() => {
+    if (initialCategory) setSubCat(initialCategory);
+  }, [initialCategory]);
+
+  useEffect(() => {
+    if (initialTodayOnly !== undefined) setTodayOnly(initialTodayOnly);
+  }, [initialTodayOnly]);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
@@ -52,7 +78,7 @@ export default function ListingsManager({
       fetchPage();
     }, 300);
     return () => clearTimeout(timer);
-  }, [page, district, state, subCat, searchQuery, limit, source]);
+  }, [page, district, state, subCat, searchQuery, limit, source, todayOnly]);
 
   async function fetchPage() {
     try {
@@ -62,6 +88,7 @@ export default function ListingsManager({
       if (subCat && subCat !== "All") qs.append("category", subCat);
       if (source && source !== "All") qs.append("source", source);
       if (searchQuery) qs.append("search", searchQuery);
+      if (todayOnly) qs.append("today_only", "true");
 
       const res = await fetch(`${API}/listings?${qs.toString()}`);
       if (res.ok) {
@@ -263,6 +290,18 @@ export default function ListingsManager({
             <option value="justdial">JustDial</option>
             <option value="google">Google Maps</option>
           </select>
+        </div>
+        <div className="flex items-center gap-2 h-9 pb-1 shrink-0">
+          <input
+            type="checkbox"
+            id="todayOnlyCheck"
+            checked={todayOnly}
+            onChange={(e) => { setTodayOnly(e.target.checked); setPage(1); }}
+            className="rounded border-input text-brand focus:ring-brand size-4 cursor-pointer"
+          />
+          <label htmlFor="todayOnlyCheck" className="text-xs font-semibold text-foreground/80 cursor-pointer select-none">
+            Scraped Today Only
+          </label>
         </div>
       </div>
 
