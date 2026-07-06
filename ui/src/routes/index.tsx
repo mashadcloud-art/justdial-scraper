@@ -3268,19 +3268,6 @@ function Dashboard() {
                       </div>
                     ))}
                   </div>
-                )
-              )}
-                        className="flex justify-between items-center py-2 px-3 rounded-lg hover:bg-accent/40 cursor-pointer transition-colors"
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-xs font-semibold text-foreground">{item.city}</span>
-                          <span className="text-[10px] text-muted-foreground capitalize">{item.category}</span>
-                        </div>
-                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand group-hover:bg-brand group-hover:text-white transition-colors">{item.count} listings</span>
-                      </div>
-                    ))}
-                  </div>
-                )
               )}
             </div>
 
