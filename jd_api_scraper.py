@@ -140,7 +140,7 @@ def scrape_jd_api(target_location: str, category: str, limit: int = 100, nextdoc
 
     # The proxy_config is already passed into the function arguments from scrape_jwt_city
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 6
     data = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -552,7 +552,7 @@ async def scrape_jd_api_async(session, target_location: str, category: str, limi
 
     proxy_url = proxy_config["http"] if proxy_config and "http" in proxy_config else None
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 6
     data = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
