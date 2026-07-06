@@ -80,7 +80,7 @@ def main():
                     limit=10,
                     dry_run=False,
                     subcategories=False,
-                    use_proxy=False # Local run doesn't use proxy (direct search works best locally)
+                    use_proxy=(sys.platform != "win32") # Auto-enable proxy on Linux cloud VPS
                 )
                 
                 total_inserted += ins

@@ -68,7 +68,7 @@ def main():
                 limit=10,
                 dry_run=False,
                 subcategories=False,
-                use_proxy=False
+                use_proxy=(sys.platform != "win32") # Auto-enable proxy on Linux cloud VPS
             )
             
             total_inserted += ins
