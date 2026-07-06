@@ -251,12 +251,15 @@ def extract_menu(driver) -> List[Dict]:
         if not item_name or key in seen:
             continue
 
-        price = "0"
-        price_el = row.find("div", class_=re.compile(r"service_priceoffer|catalogue_priceoffer"))
+        price = "Ask for price"
+        # Support both price offer and 'Ask for price' anchors
+        price_el = row.find("div", class_=re.compile(r"service_priceoffer|catalogue_priceoffer|anchor|service_pricing"))
         if price_el:
-            match = re.search(r"(\d+)", price_el.get_text(" ", strip=True))
-            if match:
-                price = match.group(1)
+            price_text = price_el.get_text(" ", strip=True).replace("₹", "").strip()
+            # Clean up double spacing and normalize
+            price_text = re.sub(r'\s+', ' ', price_text)
+            if price_text:
+                price = price_text
 
         is_veg = True
         tagbox = row.find("div", class_=re.compile(r"service_tagbox|catalogue_tagbox"))
