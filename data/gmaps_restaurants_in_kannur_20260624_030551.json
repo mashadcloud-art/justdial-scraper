@@ -1,0 +1,53 @@
+{
+  "query": "restaurants in Kannur",
+  "results": [
+    {
+      "name": "Layers",
+      "address": "",
+      "phone": "",
+      "website": "",
+      "rating": "",
+      "reviews": "",
+      "hours": "Closed · Opens 11:00 AM",
+      "category": "",
+      "latitude": "",
+      "longitude": ""
+    },
+    {
+      "name": "Layers",
+      "address": "",
+      "phone": "",
+      "website": "",
+      "rating": "",
+      "reviews": "",
+      "hours": "Closed · Opens 11:00 AM",
+      "category": "",
+      "latitude": "",
+      "longitude": ""
+    },
+    {
+      "name": "Layers",
+      "address": "",
+      "phone": "",
+      "website": "",
+      "rating": "",
+      "reviews": "",
+      "hours": "Closed · Opens 11:00 AM",
+      "category": "",
+      "latitude": "",
+      "longitude": ""
+    },
+    {
+      "name": "Layers",
+      "address": "",
+      "phone": "",
+      "website": "",
+      "rating": "",
+      "reviews": "",
+      "hours": "",
+      "category": "",
+      "latitude": "",
+      "longitude": ""
+    }
+  ]
+}

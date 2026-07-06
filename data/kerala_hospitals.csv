@@ -1,0 +1,135 @@
+District_Code,District_Name,Category,Hospital_Name,Address,Phone,Taluk,Latitude,Longitude
+TVM,Thiruvananthapuram,District Hospital,DH Peroorkada,"District Model Hospital Peroorkada,Peroorkada P O,Trivandrum Pin695005",0471-2992014,Nedumangad,8.5353544,76.9673732
+TVM,Thiruvananthapuram,District Hospital,DH Nedumangad,"District Hospital, Nedumangad P.O, Pin - 695541",0472-2802262,Nedumangad,8.6037740,77.0008022
+KLM,Kollam,District Hospital,DH Kollam (AA Rahim Memorial),"AA Rahim Memorial District Hospital, Hospital Road, Kollam 691001",0474-2742004,Kollam,8.8880171,76.5846879
+PTA,Pathanamthitta,District Hospital,DH Kozhencherry,"District Hospital ,Kozhencherry, Pathanamthitta- 689641",9495717312,Kozhenchery,9.3356364,76.7063591
+ALP,Alappuzha,District Hospital,DH Mavelikara,"District Hospital Mavelikara, Thazhakara PO -690102",0479-2303394,Mavelikkara,9.2559616,76.5516494
+ALP,Alappuzha,District Hospital,DH Chengannur,District Hospital Chengannur-689121,0479-2999167,Chengannur,9.3285603,76.6165824
+IDK,Idukki,District Hospital,DH Idukki,"DH IDUKKI, IDUKKI COLONY PO,685602",0486-2299574,Idukki,9.8537728,76.9389028
+IDK,Idukki,District Hospital,DH Thodupuzha,Thodupuzha East.P.O.PIN-685584,0486-222630,Thodupuzha,9.9001388,76.7266153
+EKM,Ernakulam,District Hospital,DH Aluva,"Aluva PO, Aluva, PIN 683101",0484-2624040,Aluva,10.1052066,76.3555833
+TSR,Thrissur,District Hospital,DH Wadakkanchery,"Oottupara,Engakkad P O,Wadakkanchery,Thrissur.Pin 680590",04884-235214,Wadakkanchery,10.6655614,76.2525185
+PKD,Palakkad,District Hospital,DH Palakkad,"District Hospital, Court Road Palakkad-678001",0491-2533327,Palakkad,10.7680087,76.6583995
+MLP,Malappuram,District Hospital,DH Tirur,"DH TIRUR,THRIKKANDIYOOR PO, MALAPPURAM, PIN 676104",0494-2423834,Tirur,10.9118666,75.9226716
+MLP,Malappuram,District Hospital,DH Perinthalmanna,"DH PERINTHALMANNA,PERINTHALMANNA PO, PIN 679322",04933-228279,Perinthalmanna,10.9745721,76.2322311
+MLP,Malappuram,District Hospital,DH Nilambur,"DH NILAMBUR, NILAMBUR PO, PIN 679329",04931-220351,Nilambur,11.2764809,76.2223146
+KKD,Kozhikode,District Hospital,DH Vatakara,"HHXW+CJ4, Nut Street, Vatakara, Kerala 673101",0496-2524259,Vadakara,11.5993300,75.5965900
+WYD,Wayanad,District Hospital,DH Mananthavady,"District Hospital Mananthavady, Mananthavady (PO) 670645",04935-240264,Mananthavady,11.8004688,76.0020462
+KNR,Kannur,District Hospital,DH Kannur,"DH Kannur HQ, Kannur, 670017",04972-731234,Kannur,11.8606711,75.3720299
+KSD,Kasaragod,District Hospital,DH Kanhangad,"District Hospital Kanhangad, Bella (PO), Chammattomvayal, PIN 671531",4672-2217018,Hosdurg,12.3147000,75.1051000
+TVM,Thiruvananthapuram,General Hospital,GH Thiruvananthapuram,"General Hospital,Vanchiyoor.P.O.,Tvm 695035",0471-2516000,Thiruvananthapuram,8.4998918,76.9433242
+TVM,Thiruvananthapuram,General Hospital,GH Neyyattinkara,"General Hospital, Neyyattinkara -695121",0471-2221935,Neyyattinkara,8.4065987,77.0855838
+PTA,Pathanamthitta,General Hospital,GH Pathanamthitta,"General Hospital, Pathanamthitta, Pathanamthitta P.O, 689645",9497713258,Kozhenchery,9.2664487,76.7819347
+PTA,Pathanamthitta,General Hospital,GH Adoor,"General Hospital, Adoor PO, Pin 691523",04734-223236,Adoor,9.1568031,76.7307354
+ALP,Alappuzha,General Hospital,GH Alappuzha,"Near Kottaram Building, Iron Bridge.P.O, Alappuzha - 688012",0477-2253324,Ambalappuzha,9.4904800,76.3402266
+KTM,Kottayam,General Hospital,GH Kottayam,GENERAL HOSPITAL KOTTAYAM PIN:686001,0481-2563611,Kottayam,9.5897182,76.5265482
+KTM,Kottayam,General Hospital,GH Pala (KM Mani Smaraka),"CENTRAL JUNCTION, PALA P.O,686575",04822-215154,Pala,9.7114407,76.6807510
+KTM,Kottayam,General Hospital,GH Changanacherry,CHANGANACHERRY PIN 686101,0481-2402349,Changanacherry,9.4450002,76.5386222
+KTM,Kottayam,General Hospital,GH Kanjirappally,"KUNNUMBHAGAM P O, KANJIRAPPALLY, PIN 686507",04828-203492,Kanjirappally,9.5597059,76.7797893
+EKM,Ernakulam,General Hospital,GH Ernakulam,"Hospital Road, Ernakulam-682011",0484-2386000,Kanayannoor,9.9722768,76.2813966
+EKM,Ernakulam,General Hospital,GH Muvattupuzha,"General Hospital, Muvattupuzha PO, Pin 686661",0485-2832360,Muvattupuzha,9.9793597,76.5805796
+TSR,Thrissur,General Hospital,GH Thrissur,"GENERAL HOSPITAL THRISSUR, SWARAJ ROUND THRISSUR 680001",0487-2427778,Thrissur,10.5229494,76.2171910
+TSR,Thrissur,General Hospital,GH Irinjalakuda,"GENERAL HOSPITAL, IRINJALAKUDA, PIN 680121",0480-2833710,Irinjalakuda,10.3473113,76.2176183
+MLP,Malappuram,General Hospital,GH Manjeri (Shihab Thangal Smaraka),"GH MANJERI, MALAPPURAM Dist PIN 676121",0483-2766845,Manjeri,11.1178000,76.1223000
+KKD,Kozhikode,General Hospital,GH Kozhikode,Govt. GH Kozhikode Beach PO. Kozhikode -673032,0495-2801177,Kozhikode,11.2575100,75.7731900
+WYD,Wayanad,General Hospital,GH Kalpetta (MS Padmaiah Gowder Memorial),"Kalpetta, Pincode 673122",04936-202037,Vythiri,11.6334063,76.0894675
+KNR,Kannur,General Hospital,GH Thalassery,"General Hospital, Thalassery 670101",0490-2327450,Thalassery,11.7482268,75.4878218
+KSD,Kasaragod,General Hospital,GH Kasaragod,"Kasaragod Post, PIN 671121",04994-230080,Kasaragod,12.5030130,74.9918130
+TVM,Thiruvananthapuram,W&C Hospital,W&C Thycaud,"Women & Children Hospital, Thycaud, Thiruvananthapuram, Pin 695014",0471-2323457,Thiruvananthapuram,8.4875587,76.9568554
+KLM,Kollam,W&C Hospital,W&C Victoria Hospital,"Busstand, Poyilakkada Jn, Near KSRTC, Kollam, 691001",0474-2752700,Kollam,8.8879834,76.5861807
+ALP,Alappuzha,W&C Hospital,W&C Hospital Alappuzha,"Bazar P O, Alappuzha 688012",0477-2251151,Ambalappuzha,9.4900700,76.3211900
+KTM,Kottayam,W&C Hospital,W&C Vaikom,Vaikom 686141,NIL,Vaikom,9.6871155,76.4201011
+EKM,Ernakulam,W&C Hospital,W&C Mattancherry,"W&C Hospital Mattancherry, Bazar Road, PIN 682002",0484-2224511,Kochi,9.9593869,76.2597548
+PKD,Palakkad,W&C Hospital,W&C Palakkad,"Behind District Hospital, Palakkad PIN 678001",0491-2530013,Palakkad,10.7686066,76.6506477
+MLP,Malappuram,W&C Hospital,W&C Ponnani,"Ponnani, MLPM",0494-2666339,Ponnani,10.7726988,75.9226414
+KKD,Kozhikode,W&C Hospital,W&C Kozhikode,"Kottapparamba, Kozhikode, 673001",0495-2721998,Kozhikode,11.2516500,75.7840700
+KNR,Kannur,W&C Hospital,EKM W&C Hospital Mangattuparamba,"Parassinikkadav(P.O),Near Snake Park, PIN-670563",0497-2784650,Taliparamba,11.9921267,75.3859795
+KSD,Kasaragod,W&C Hospital,W&C Hospital Kanhangad,"Hosdurg, PO Kanhangad PIN 671315",04672-215555,Hosdurg,12.3120640,75.0931730
+TVM,Thiruvananthapuram,Taluk HQ Hospital,THQH Chirayinkeezhu,Trivandrum,0471-2646666,Attingal,8.6610399,76.7866079
+TVM,Thiruvananthapuram,Taluk HQ Hospital,THQH Parassala,"Parassala,695502",0471-2202266,Parassala,8.3447676,77.1513808
+TVM,Thiruvananthapuram,Taluk HQ Hospital,THQH Malayinkeezhu,Malayinkeezhu,0471-2282490,Kattakkada,8.4887739,77.0352497
+KLM,Kollam,Taluk HQ Hospital,THQH Karunagappally,"Kollam, 690518",0476-2626662,Karunagappally,9.0639860,76.5346159
+KLM,Kollam,Taluk HQ Hospital,THQH Kottarakkara,Kottarakkara 691506,0474-2452610,Kottarakkara,9.0051730,76.7755716
+KLM,Kollam,Taluk HQ Hospital,THQH Pathanapuram,Pathanapuram-689695,8921635588,Pathanapuram,9.0968445,76.8599033
+KLM,Kollam,Taluk HQ Hospital,THQH Punalur,Punalur-691305,0475-2228702,Punalur,9.0198598,76.9564483
+KLM,Kollam,Taluk HQ Hospital,THQH Sasthamcotta,Sasthamcotta 690521,0476-2831899,Kunnathoor,9.0557581,76.6277839
+PTA,Pathanamthitta,Taluk HQ Hospital,THQH Thiruvalla,Thiruvalla 689101,0469-2602494,Thiruvalla,9.3794476,76.5689895
+PTA,Pathanamthitta,Taluk HQ Hospital,THQH Ranni (MCCM),"Ranni P.O, 689672",9188522990,Ranni,9.3777350,76.7800416
+PTA,Pathanamthitta,Taluk HQ Hospital,THQH Konni,"Konni/Pathanamthitta, 689691",0468-2243469,Konni,9.2314894,76.8457385
+PTA,Pathanamthitta,Taluk HQ Hospital,THQH Mallappally,"Mallappally West, 689 585",7012499949,Mallappally,9.4527662,76.6482627
+ALP,Alappuzha,Taluk HQ Hospital,THQH Cherthala,Cherthala688524,0478-2812683,Cherthala,9.6816131,76.3399459
+ALP,Alappuzha,Taluk HQ Hospital,THQH Pulinkunnu,Pulinkunnu688504,0477-2707742,Kuttanad,9.4350678,76.4365062
+ALP,Alappuzha,Taluk HQ Hospital,THQH Haripad,Haripad-690514,0479-2412765,Harippad,9.2802281,76.4595874
+ALP,Alappuzha,Taluk HQ Hospital,THQH Kayamkulam (PK Kunju Sahib),Kayamkulam PIN-690502,0479-2447275,Kayamkulam,9.1717000,76.4997000
+KTM,Kottayam,Taluk HQ Hospital,THQH Pampady,Kottayam -686502,0481-2507866,Puthuppally,9.5657000,76.6455807
+KTM,Kottayam,Taluk HQ Hospital,THQH Kuravilangadu,Kuravilangadu 686633,0482-2231616,Kaduthuruthy,9.7570007,76.5550583
+KTM,Kottayam,Taluk HQ Hospital,THQH Vaikom,Vaikom 686141,04829-216361,Vaikom,9.7502847,76.3900199
+IDK,Idukki,Taluk HQ Hospital,THQH Peermade,"Peermade PO, 685531",04869-232424,Peerumedu,9.6298854,76.9794170
+IDK,Idukki,Taluk HQ Hospital,THQH Adimaly,Adimaly P.O 685561,04864-222680,Devikulam,10.0155013,77.0125484
+IDK,Idukki,Taluk HQ Hospital,THQH Nedumkandam,Nedumkandam PO. 685553,04868-232650,Udumbanchola,9.8350183,77.1590650
+EKM,Ernakulam,Taluk HQ Hospital,THQH Fort Kochi,"Fort Kochi, PIN 682001",0484-2216444,Kochi,9.9661423,76.2450500
+EKM,Ernakulam,Taluk HQ Hospital,THQH Thrippunithura,"Thrippunithura, PIN 682301",0484-2777415,Thrippunithura,9.9423883,76.3461833
+EKM,Ernakulam,Taluk HQ Hospital,THQH Perumbavoor,"Perumbavoor Po, PIN 683542",0484-2523138,Perumbavoor,10.1155963,76.4811462
+EKM,Ernakulam,Taluk HQ Hospital,THQH North Paravur,"North Paravur, PIN 683513",0484-2444438,Paravur,10.1494200,76.2327170
+EKM,Ernakulam,Taluk HQ Hospital,THQH Kothamangalam,"AM Road, Kothamangalam, PIN 686691",0485-2822603,Kothamangalam,10.0600000,76.6000000
+TSR,Thrissur,Taluk HQ Hospital,THQH Chavakkad,Chavakkad-680506,0487-2501110,Chavakkad,10.5873390,76.0200923
+TSR,Thrissur,Taluk HQ Hospital,THQH Kodungalloor,Kodungallur PIN 680 664,0480-2802394,Kodungallur,10.2290171,76.1970707
+TSR,Thrissur,Taluk HQ Hospital,THQH Chalakudy,Chalakudy - 680307,0480-2701823,Chalakudy,10.2958919,76.3410170
+PKD,Palakkad,Taluk HQ Hospital,THQH Alathur,"Court Road, Alathur, Palakkad 678541",0492-2224322,Alathur,10.6462624,76.5382475
+PKD,Palakkad,Taluk HQ Hospital,THQH Chittur,"Chittur, Palakkad 678101",04923-222385,Chittur,10.6996999,76.7533975
+PKD,Palakkad,Taluk HQ Hospital,THQH Ottappalam,"Ottappalam, Palakkad PIN 679104",0466-2344053,Ottappalam,10.7799933,76.3745437
+PKD,Palakkad,Taluk HQ Hospital,THQH Mannarkkad,"Hospital Junction, Mannarkkad 678582",0492-4224549,Mannarkkad,10.9946102,76.4658269
+PKD,Palakkad,Taluk HQ Hospital,THQH Pattambi,"Pattambi PO, Palakkad-679303",0466-2950400,Pattambi,10.8024894,76.1805220
+PKD,Palakkad,Taluk HQ Hospital (Attappady Tribal Speciality),THQH Kottathara,"Kottathara, PIN 678581",Not working,Mannarkkad,11.1313237,76.6814187
+MLP,Malappuram,Taluk HQ Hospital,THQH Ponnani,"Ponnani Nagaram PO, PIN 679583",0494-2663089,Ponnani,10.7752388,75.9225387
+MLP,Malappuram,Taluk HQ Hospital,THQH Thirurangadi,"Thirurangadi PO, PIN 676306",0494-2460372,Tirurangadi,11.0407070,75.9124330
+MLP,Malappuram,Taluk HQ Hospital,THQH Malappuram,"Malappuram Down Hill PO, PIN 676519",0483-2734866,Malappuram,11.0470056,76.0732510
+MLP,Malappuram,Taluk HQ Hospital,THQH Kondotty,"Kondotty PO, PIN 673638",0483-2710586,Kondotty,11.1281546,75.9753974
+KKD,Kozhikode,Taluk HQ Hospital,THQH Koyilandy,"Main Highway, Koyilandy, 673305",0496-2960241,Koyilandy,11.4424600,75.6926900
+WYD,Wayanad,Taluk HQ Hospital,THQH Sulthan Bathery,"Sulthan Bathery PO,673592",04936-293811,Sulthan Bathery,11.6629159,76.2575468
+WYD,Wayanad,Taluk HQ Hospital,THQH Vythiri,"Kunnathidavaka PO,673576",04936-256229,Vythiri,11.5508030,76.0403991
+KNR,Kannur,Taluk HQ Hospital,THQH Taliparamba,"Karimbam PO, Kannur - 670142",0460-2203298,Taliparamba,12.0454442,75.3772509
+KSD,Kasaragod,Taluk HQ Hospital (Vellarikund),THQH Poodamkallu,"Rajapuram PO, 671532",0467-2224737,Vellarikund,12.4149390,75.2390190
+KSD,Kasaragod,Taluk HQ Hospital,THQH Mangalpady,"Naya Bazar Uppala PO, 671322",04998-242098,Manjeshwar,12.6785950,74.9076840
+KSD,Kasaragod,Taluk HQ Hospital,THQH Bedadka,"Bedadka Post, Chengala Via, 671541",04994-290590,Karadka,12.4603080,75.1674680
+KSD,Kasaragod,Taluk HQ Hospital,THQH Nileshwar,"Vallikkunnu PO Nileshwar, 671314",0467-2282933,Hosdurg,12.2568000,75.1454000
+TVM,Thiruvananthapuram,Taluk Hospital,TH Fort,"Fort,Tvpm,695023",0471-2471766,Thiruvananthapuram,8.4860596,76.9407618
+TVM,Thiruvananthapuram,Taluk Hospital,TH Varkala,Varkala,0470-2602549,Varkala,8.7331189,76.7201277
+TVM,Thiruvananthapuram,Taluk Hospital,TH Nemom,"Santhivila, Nemom.P.O, 695020",0471-2390276,Nemom,8.4541586,76.9998887
+TVM,Thiruvananthapuram,Taluk Hospital,TH Attingal,"Kizhuvillam PO,Tvpm,695104",0470-2622447,Attingal,8.6861487,76.8281344
+TVM,Thiruvananthapuram,Taluk Hospital,TH Vithura,"Vithura.P.O, 695551",0472-2856252,Vellanad,8.6729747,77.0832909
+KLM,Kollam,Taluk Hospital,TH Kadakkal,"Kadakkal.P.O, PIN 691536",0474-2960008,Kottarakkara,8.8266915,76.9168015
+KLM,Kollam,Taluk Hospital,TH Kundara,"Kundara.P.O, Kollam 691501",0474-2526949,Kundara,8.9611252,76.6714048
+KLM,Kollam,Taluk Hospital (Ramarao Memorial) Nedungolam,TH Nedungolam,Nedungolam PO Kollam-691334,0474-2512324,Chathannoor,8.8327717,76.6827434
+KLM,Kollam,Taluk Hospital,TH Neendakara,Neendakara 691582,0476-2680227,Chavara,8.9635767,76.5324888
+ALP,Alappuzha,Taluk Hospital,TH Thuravoor,Alappuzha-688 532,0478-2562490,Aroor,9.7700686,76.3176924
+ALP,Alappuzha,Taluk Hospital (Rural Health Training Centre),TH Chettikad,"Pathirapally.P.O,Alappuzha 688521",0477-2248668,Ambalappuzha,9.5313947,76.3142974
+IDK,Idukki,Taluk Hospital,TH Kattappana,"Thovarayar PO, 685511",04868-251711,Idukki,9.7460650,77.1009000
+EKM,Ernakulam,Taluk Hospital,TH Njarakkal,"Ernakulam, PIN 682505",0484-2494156,Vypin,10.0425271,76.2224810
+EKM,Ernakulam,Taluk Hospital (Govt Maharaja's),GMTH Karuvelipady,"Karuvelippady, Kochi, PIN 682005",0484-2210648,Kochi,9.9430984,76.2605823
+EKM,Ernakulam,Taluk Hospital,TH Angamaly,"Angamaly Po, PIN 683572",0484-2455950,Angamaly,10.1962932,76.3873515
+EKM,Ernakulam,Taluk Hospital,TH Puthenvelikkara,"Puthenvelikkara PO, PIN 683520",0484-2487259,Paravur,10.1854090,76.2459363
+EKM,Ernakulam,Taluk Hospital,TH Piravom,"Piravom, PIN 686664",0485-2243923,Piravom,9.8742068,76.4950013
+EKM,Ernakulam,Taluk Hospital,TH Palluruthy,"Palluruthy P O, Kacheripady, PIN 682006",0484-2235780,Thrippunithura,9.9113701,76.2737098
+TSR,Thrissur,Taluk Hospital,TH Chelakkara,Thrissur District 680586,04880-252778,Chelakkara,10.6553583,76.3581816
+TSR,Thrissur,Taluk Hospital,TH Pudukkad,Thrissur District 680721,0480-2751232,Pudukkad,10.4197869,76.2662719
+TSR,Thrissur,Taluk Hospital,TH Kunnamkulam,"Thrissur, 680503",04885-222235,Kunnamkulam,10.6488752,76.0695395
+PKD,Palakkad,Taluk Hospital,TH Elappully,"Elappully, Palakkad 678622",0491-2584431,Chittur,10.7563974,76.7448551
+MLP,Malappuram,Taluk Hospital,TH Areacode,"Areekkode PO, PIN 673639",0483-2851700,Eranad,11.2339729,76.0501817
+MLP,Malappuram,Taluk Hospital,TH Kuttippuram,"Kuttippuram PO, PIN 679571",0494-2608282,Tirur,10.8534242,76.0364982
+MLP,Malappuram,Taluk Hospital,TH Wandoor,"Wandoor PO, PIN 679326",04931-247378,Nilambur,11.1923061,76.2368328
+KKD,Kozhikode,Taluk Hospital,TH Feroke,"Feroke, Kozhikode,673633",0495-2482513,Beypore,11.1819633,75.8410333
+KKD,Kozhikode,Taluk Hospital,TH Kuttiyadi,"Kuttiadi PO, 673508",0496-2597173,Kuttiady,11.6551953,75.7496058
+KKD,Kozhikode,Taluk Hospital,TH Nadapuram,"Nadapuram, 673504",0496-2552480,Nadapuram,11.6821211,75.6521681
+KKD,Kozhikode,Taluk Hospital,TH Thamarassery,"Near Civil Station, Thamarassery-673573",0495-2222098,Koduvally,11.4124524,75.9367378
+KKD,Kozhikode,Taluk Hospital,TH Perambra,"Kallode, Perambra,673525",0496-2610575,Perambra,11.5695204,75.7548113
+KKD,Kozhikode,Taluk Hospital,TH Balussery,Balussery-673612,0496-2963150,Balussery,11.4458812,75.8359130
+KNR,Kannur,Taluk Hospital,TH Kuthuparamba,"Kuthupaparamba PO, 670643",0490-2364150,Kuthuparamba,11.8283634,75.5647889
+KNR,Kannur,Taluk Hospital,TH Pazhyangadi,Pazhayangadi PO 670303,0497-2870211,Kalliasseri,12.0347992,75.2657431
+KNR,Kannur,Taluk Hospital,TH Peringome,"Peringome PO, PIN 670353",0498-5237250,Payyannur,12.0406240,75.3681030
+KNR,Kannur,Taluk Hospital,TH Iritty,"Iritty PO, PIN 670703",0490-2493180,Iritty,11.9859096,75.6730301
+KNR,Kannur,Taluk Hospital,TH Irikkur,Irikkur PO Kannur 670593,0460-2297333,Irikkur,11.9843299,75.5530723
+KNR,Kannur,Taluk Hospital,TH Panoor,PO Panoor 670692,0490-2311355,Koothuparamba,11.7587646,75.5785220
+KNR,Kannur,Taluk Hospital,TH Payyannur,Payyanur PO. PIN 670307,0498-5203130,Payyanur,12.1143000,75.2108000
+KNR,Kannur,Taluk Hospital,TH Peravoor,"Peravoor PO, 670673",0490-2445355,Peravoor,11.9027363,75.7328468
+KSD,Kasaragod,Taluk Hospital,TH Thrikaripur,"Thankayam, Trikaripur PO,pin 671310",0467-2215522,Trikaripur,12.1389590,75.1767931

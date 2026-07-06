@@ -593,9 +593,14 @@ def get_listings(
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     from sqlalchemy import func
+    import datetime
     total_listings = db.query(models.Listing).count()
     total_images = db.query(models.ListingImage).count()
     total_menu_items = db.query(models.MenuItem).count()
+    
+    # Calculate scraped today count
+    today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    scraped_today = db.query(models.Listing).filter(models.Listing.scraped_at >= today_start).count()
     
     # Category group counts (schools are now merged into listings table)
     cat_counts = db.query(
@@ -608,6 +613,7 @@ def get_stats(db: Session = Depends(get_db)):
         "total_restaurants": total_listings, # Backward compatibility
         "total_images": total_images,
         "total_menu_items": total_menu_items,
+        "scraped_today": scraped_today,
         "category_breakdown": category_breakdown
     }
 

@@ -552,6 +552,9 @@ function Dashboard() {
         const data = await res.json();
         setStatsTotal(data.total_listings ?? data.total_restaurants ?? 0);
         setStatsImages(data.total_images ?? 0);
+        if (data.scraped_today !== undefined) {
+          setTotalScraped(data.scraped_today);
+        }
       }
     } catch { /* backend not ready yet */ }
   }
@@ -709,7 +712,6 @@ function Dashboard() {
           })),
         }));
         setRows(mapped);
-        setTotalScraped(mapped.length);
         addLog(true, `Loaded ${mapped.length} businesses from database.`);
       }
     } catch { addLog(false, "Could not connect to backend API."); }

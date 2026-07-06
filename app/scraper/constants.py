@@ -108,6 +108,14 @@ MAPPED_SUBCATEGORIES = {
         "Home Delivery Restaurants", "Indian Restaurants", "Inexpensive Restaurants Below Rs 500", 
         "Kebab Restaurants", "Mandi Restaurants", "Moderate Restaurants Rs 500 To Rs 1000", 
         "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants"
+    ],
+    "Rentals": [
+        "car rental", "costumes on rent", "mini bus on rent", "furnitures on rent", "blazers on rent", 
+        "bridal wear on rent", "bungalows on rent", "bus on rent", "computers on rent", "cranes on rent", 
+        "dj equipments on rent", "farm house on rent", "generators on rent", "laptops on rent", 
+        "mini trucks on rent", "bike on rent", "offices on rent", "passenger van on rent", "projectors on rent", 
+        "rooms on rent", "sherwanis on rent", "sound systems on rent", "suits on rent", 
+        "tempo travellers on rent", "trucks on rent", "vans on rent"
     ]
 }
 
@@ -120,5 +128,7 @@ def get_subcategories_for_main(main_category: str) -> list[str]:
     # Normalize common queries
     if key.lower() == "restaurants":
         return MAPPED_SUBCATEGORIES.get("Restaurants")
+    if key.lower() == "rentals":
+        return MAPPED_SUBCATEGORIES.get("Rentals")
     return MAPPED_SUBCATEGORIES.get(key, [])
 

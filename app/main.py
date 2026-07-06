@@ -49,21 +49,29 @@ async def auto_start_jd_scraper():
     pages = config.get("pages", 10)
     log_file = f"jd_{district.lower()}_{category.lower().replace(' ', '_')}.log"
 
-    print(f"[AutoScrape] 🚀 Auto-starting JD scraper: {district} / {category} (pages={pages}) → {log_file}")
+    subcategories = config.get("subcategories", False)
+
+    print(f"[AutoScrape] [STARTING] Auto-starting JD scraper: {district} / {category} (pages={pages}, subcategories={subcategories}) -> {log_file}")
     try:
         python_exe = sys.executable
+        cmd = [
+            python_exe, "-u", "jd_api_scraper.py",
+            "--district", district,
+            "--category", category,
+            "--pages", str(pages)
+        ]
+        if subcategories:
+            cmd.append("--subcategories")
+            
         with open(log_file, "a", encoding="utf-8") as lf:
             subprocess.Popen(
-                [python_exe, "-u", "jd_api_scraper.py",
-                 "--district", district,
-                 "--category", category,
-                 "--pages", str(pages)],
+                cmd,
                 stdout=lf,
                 stderr=subprocess.STDOUT
             )
-        print(f"[AutoScrape] ✅ Scraper launched. Logs → {log_file}")
+        print(f"[AutoScrape] [OK] Scraper launched. Logs -> {log_file}")
     except Exception as e:
-        print(f"[AutoScrape] ❌ Failed to auto-start scraper: {e}")
+        print(f"[AutoScrape] [ERROR] Failed to auto-start scraper: {e}")
 # ─────────────────────────────────────────────────────────────────────────────
 
 

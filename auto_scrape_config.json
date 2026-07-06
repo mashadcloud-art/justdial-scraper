@@ -1,7 +1,8 @@
 {
   "enabled": true,
-  "district": "Kannur",
-  "category": "Restaurants",
+  "district": "Rajasthan",
+  "category": "Rentals",
   "pages": 10,
+  "subcategories": true,
   "_note": "Set enabled=false to stop auto-start. Change district/category to switch scrape target."
 }

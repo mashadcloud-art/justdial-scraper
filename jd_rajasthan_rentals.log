@@ -1,0 +1,30 @@
+[OK] Connected to Supabase PostgreSQL cloud database!
+[11:24:04] [INFO] Batch subcategory mode enabled! Found 26 subcategories under 'Rentals':
+[11:24:04]    car rental, costumes on rent, mini bus on rent, furnitures on rent, blazers on rent, bridal wear on rent, bungalows on rent, bus on rent, computers on rent, cranes on rent, dj equipments on rent, farm house on rent, generators on rent, laptops on rent, mini trucks on rent, bike on rent, offices on rent, passenger van on rent, projectors on rent, rooms on rent, sherwanis on rent, sound systems on rent, suits on rent, tempo travellers on rent, trucks on rent, vans on rent
+[11:24:04] 
+############################################################
+[11:24:04] ## Subcategory [1/26]: car rental
+[11:24:04] ############################################################
+[11:24:04] ============================================================
+[11:24:04]   JustDial Direct API Scraper (JWT Enabled + Cursor Pagination)
+[11:24:04] ============================================================
+[11:24:04]   District:  Ajmer
+[11:24:04]   Category:  car rental
+[11:24:04]   Max pages: 10 x up to 10 results each
+[11:24:04]   Mode:      LIVE (saving to DB)
+[11:24:04] ============================================================
+[11:24:04] [INFO] Found 57 pincodes for district 'Ajmer':
+[11:24:04]    305813, 305025, 305023, 305811, 305005, 305801, 305206, 305815, 305205, 305814, 305001, 305812, 305816, 305004, 305002, 305022, 305021, 305009, 305024, 305802, 305003, 305819, 305007, 305012, 305817, 305601, 305621, 305401, 305628, 305412, 305901, 305623, 305207, 305407, 305204, 305927, 305404, 305624, 305925, 305924, 305926, 305625, 305403, 305202, 305622, 305408, 305923, 305405, 305922, 305402, 305627, 305629, 305201, 305406, 305415, 305203, 305630
+[11:24:04] [INFO] Caching existing listings from database for fast duplicate prevention...
+[11:24:08] [INFO] Cached 34219 phones and 44570 listings.
+[11:24:08] 
+==========================================
+[11:24:08] [*] Scraping target 1/57: 305813
+[11:24:08] ==========================================
+[11:24:10] ? Found 100 total car rental in 305813.
+[11:24:10]   Scraping page 1 (got 11 results)...
+[11:24:10]   Checking page 2 for the next batch...
+[11:24:10]   [1] [IMG] Rawat Tour & Travel | +(91)-8128830106 | 9 photos
+[11:24:10]        [1] https://content.jdmagicbox.com/v2/comp/ajmer/d8/9999px145.x145.190917142353.n2d8/catalogue...
+[11:24:10]        [2] https://images.jdmagicbox.com/v2/comp/ajmer/d8/9999px145.x145.190917142353.n2d8/catalogue/...
+[11:24:10]        [3] https://images.jdmagicbox.com/v2/comp/ajmer/d8/9999px145.x145.190917142353.n2d8/catalogue/...
