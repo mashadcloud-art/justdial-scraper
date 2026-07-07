@@ -107,7 +107,10 @@ MAPPED_SUBCATEGORIES = {
         "Fried Chicken Restaurants", "Grill Restaurants", "Halal Restaurants", 
         "Home Delivery Restaurants", "Indian Restaurants", "Inexpensive Restaurants Below Rs 500", 
         "Kebab Restaurants", "Mandi Restaurants", "Moderate Restaurants Rs 500 To Rs 1000", 
-        "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants"
+        "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants",
+        "Sea Food Restaurants", "Multicuisine Restaurants", "Barbeque Restaurants",
+        "Pure Veg Thali Restaurants", "Non Veg Thali Restaurants", "Chinese Restaurants",
+        "Punjabi Restaurants", "Steak Restaurants", "Fusion Restaurants"
     ],
     "Rentals": [
         "car rental", "costumes on rent", "mini bus on rent", "furnitures on rent", "blazers on rent", 
