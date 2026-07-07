@@ -110,7 +110,17 @@ MAPPED_SUBCATEGORIES = {
         "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants",
         "Sea Food Restaurants", "Multicuisine Restaurants", "Barbeque Restaurants",
         "Pure Veg Thali Restaurants", "Non Veg Thali Restaurants", "Chinese Restaurants",
-        "Punjabi Restaurants", "Steak Restaurants", "Fusion Restaurants"
+        "Punjabi Restaurants", "Steak Restaurants", "Fusion Restaurants",
+        "Kerala Restaurants", "Arabic Restaurants", "Biryani Delivery Restaurants", 
+        "Biryani Restaurants", "Breakfast Restaurants", "Buffet Restaurants", 
+        "Dinner Restaurants", "Hyderabadi Restaurants", "Lunch Restaurants", 
+        "Moderate Arabic Restaurants Rs 500 To Rs 1000", "Moderate Biryani Restaurants Rs 500 To Rs 1000", 
+        "Moderate Buffet Restaurants Rs 500 To Rs 1000", "Moderate Chinese Restaurants Rs 500 To Rs 1000", 
+        "Moderate Hyderabadi Restaurants Rs 500 To Rs 1000", "Moderate Indian Restaurants Rs 500 To Rs 1000", 
+        "Moderate Kerala Restaurants Rs 500 To Rs 1000", "Moderate Multicuisine Restaurants Rs 500 To Rs 1000", 
+        "Moderate North Indian Restaurants Rs 500 To Rs 1000", "Moderate South Indian Restaurants Rs 500 To Rs 1000", 
+        "Moderate Tandoori Restaurants Rs 500 To Rs 1000", "North Indian Restaurants", 
+        "South Indian Restaurants", "Tandoori Restaurants", "Thali Restaurants"
     ],
     "Rentals": [
         "car rental", "costumes on rent", "mini bus on rent", "furnitures on rent", "blazers on rent", 
