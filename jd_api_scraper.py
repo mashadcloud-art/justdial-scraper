@@ -744,9 +744,10 @@ async def scrape_target_async(session, semaphore, target, district, category, li
 
         next_cursor = raw_next_cursor
 
-        if page_duplicates == len(rows):
-            log(f"  [INFO] [{target}] Page {page_num} consists entirely of duplicates ({page_duplicates}/{len(rows)}). Skipping target!")
-            break
+        # Do not break on duplicate pages to allow deep scraping of less-popular items on subsequent pages
+        # if page_duplicates == len(rows):
+        #     log(f"  [INFO] [{target}] Page {page_num} consists entirely of duplicates ({page_duplicates}/{len(rows)}). Skipping target!")
+        #     break
 
         if not raw_next_cursor:
             break
