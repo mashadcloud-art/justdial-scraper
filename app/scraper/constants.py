@@ -129,6 +129,16 @@ MAPPED_SUBCATEGORIES = {
         "mini trucks on rent", "bike on rent", "offices on rent", "passenger van on rent", "projectors on rent", 
         "rooms on rent", "sherwanis on rent", "sound systems on rent", "suits on rent", 
         "tempo travellers on rent", "trucks on rent", "vans on rent"
+    ],
+    "Civil Contractors": [
+        "Carpentry Contractors", "Civil Contractors", "Electrical Contractors", "Flooring Contractors", 
+        "Furniture Contractors", "Painting Contractors", "Plumbing Contractors", "Borewell Contractors", 
+        "Building Contractors", "Carpet Contractors", "Construction Contractors", "Drainage Contractors", 
+        "Drilling Contractors", "Elevator Contractors", "Fabrication Contractors", "False Ceiling Contractors", 
+        "Fire Fighting Contractors", "Garden Contractors", "Interior Decorators", "Labour Contractors", 
+        "Pipeline Contractors", "Pop Contractors", "Road Construction Contractors", "Roofing Contractors", 
+        "Swimming Pool Construction Contractors", "Tiling Contractors", "Wall Paper Contractors", 
+        "Waterproofing Contractors", "Welding Contractors"
     ]
 }
 
@@ -143,5 +153,7 @@ def get_subcategories_for_main(main_category: str) -> list[str]:
         return MAPPED_SUBCATEGORIES.get("Restaurants")
     if key.lower() == "rentals":
         return MAPPED_SUBCATEGORIES.get("Rentals")
+    if key.lower() in ("civil contractors", "contractors"):
+        return MAPPED_SUBCATEGORIES.get("Civil Contractors")
     return MAPPED_SUBCATEGORIES.get(key, [])
 
