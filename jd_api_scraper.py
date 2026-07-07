@@ -381,6 +381,7 @@ def parse_row(columns: list, row: list, district: str, category: str) -> dict:
         "location": location,
         "district": district,
         "category": listing_type or category,
+        "subcategory": listing_type,
         "latitude": float(lat) if lat else None,
         "longitude": float(lon) if lon else None,
         "rating": float(rating) if rating else None,
@@ -443,6 +444,10 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
             existing.category = actual_cat
             updated = True
         
+        if not existing.subcategory and listing_data.get("subcategory"):
+            existing.subcategory = listing_data["subcategory"]
+            updated = True
+        
         # Ensure normalized_category is populated
         if not existing.normalized_category and category:
             existing.normalized_category = category
@@ -488,6 +493,7 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
         district=district,
         state=resolved_state,
         category=listing_data.get("category") or category,
+        subcategory=listing_data.get("subcategory"),
         normalized_category=category,
         latitude=str(listing_data["latitude"]) if listing_data["latitude"] is not None else None,
         longitude=str(listing_data["longitude"]) if listing_data["longitude"] is not None else None,
