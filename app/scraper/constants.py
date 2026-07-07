@@ -139,6 +139,69 @@ MAPPED_SUBCATEGORIES = {
         "Pipeline Contractors", "Pop Contractors", "Road Construction Contractors", "Roofing Contractors", 
         "Swimming Pool Construction Contractors", "Tiling Contractors", "Wall Paper Contractors", 
         "Waterproofing Contractors", "Welding Contractors"
+    ],
+    "Marble Dealers": [
+        "Marble Dealers", "Granite Dealers", "Marble Stone Dealers", "Acid Proof Marble Floor Tile Dealers", 
+        "Acoustic Marble Tile Dealers", "Agaria Marble Wholesalers", "Alaska White Granite Dealers", 
+        "Alaska White Granite Manufacturers", "Ambaji Marble Stone Dealers", "Antique Italian Marble Dealers", 
+        "Antique Italian Marble Wholesalers", "Antique Marble Dealers", "Antique Marble Wholesalers", 
+        "Artificial Granite Dealers", "Artificial Marble Dealers", "Artificial Marble Distributors", 
+        "Artificial Marble Wholesalers", "Asian Top Granite Manufacturers", "Aspur Marble Dealers", 
+        "Aspur Marble Distributors", "Aspur Marble Exporters", "Aspur Marble Manufacturers", 
+        "Aspur Marble Wholesalers", "Australian Marble Dealers", "Australian Marble Distributors", 
+        "Baltic Brown Granite Distributors", "Bathroom Tile Manufacturers", "Beige Marble Tile Dealers", 
+        "Beige Sandstone Exporters", "Beige Sandstone Wholesalers", "Bianco Venatin Italian Marble Dealers", 
+        "Black Galaxy Granite Dealers", "Black Galaxy Granite Manufacturers", "Black Galaxy Granite Slan Manufacturers", 
+        "Black Granite Dealers", "Black Granite Distributors", "Black Granite Exporters", 
+        "Black Granite Manufacturers", "Black Granite Wholesalers", "Black Pearl Granite Distributors", 
+        "Black Pearl Granite Manufacturers", "Black Pearl Granite Wholesalers", "Black Sandstone Exporters", 
+        "Black Sandstone Manufacturers", "Black Sandstone Wholesalers", "Blue Granite Distributors", 
+        "Blue Sapphire Granite Dealers", "Botticino Fiorito Italian Marble Dealers", "Botticino Italian Marble Dealers", 
+        "Breccia Aurora Italian Marble Dealers", "Breccia Marble Dealers", "Breccia Oniciata Italian Marble Dealers", 
+        "Brick Marble Tile Dealers", "Brickbond Marble Tile Dealers", "Brown Granite Dealers", 
+        "Brown Marble Dealers", "Brown Marble Wholesalers", "Building Material Manufacturers", 
+        "Bullnose Marble Tile Dealers", "Calacatta Italian Marble Dealers", "Calcite Marble Dealers", 
+        "Carpet Tile Manufacturers", "Carrara Marble Dealers", "Ceramic Elevation Tile Manufacturers", 
+        "Ceramic Marble Tile Dealers", "Ceramic Marble Tile Manufacturers", "Ceramic Tile Manufacturers", 
+        "Cherry Brown Granite Dealers", "Cladding Tile Manufacturers", "Classic Marble Tile Dealers", 
+        "Coffee Brown Granite Manufacturers", "Colored Marble Dealers", "Coloured Granite Manufacturers", 
+        "Coloured Granite Wholesalers", "Coloured Sandstone Distributors", "Coloured Sandstone Exporters", 
+        "Coloured Sandstone Manufacturers", "Composite Marble Dealers", "Composite Marble Manufacturers", 
+        "Construction Material Manufacturers", "Contemporary Marble Tile Dealers", "Contractors", 
+        "Corner Marble Tile Dealers", "Crystal Marble Tile Dealers", "Cultured Marble Dealers", 
+        "Dark Emperador Italian Marble Dealers", "Decorative Marble Tile Dealers", "Dolomite Marble Dealers", 
+        "Dyna Italian Marble Dealers", "Egyptian Marble Dealers", "Emperador Marble Dealers", 
+        "Emperador Marble Distributors", "Eta Gold Marble Dealers", "Exterior Marble Tile Dealers", 
+        "Flamed Granite Tile Manufacturers", "Flooring Contractors", "Flooring Manufacturers", 
+        "Floral Marble Tile Dealers", "Florentine Beige Italian Marble Dealers", "Galala Marble Dealers", 
+        "Galaxy Granite Dealers", "Galaxy Granite Manufacturers", "Glass Marble Tile Dealers", 
+        "Glossy Ceramic Tile Manufacturers", "Glossy Tile Manufacturers", "Granite Block Dealers", 
+        "Granite Block Manufacturers", "Granite Cobble Manufacturers", "Granite Contractors", 
+        "Granite Dealers-Makrana", "Granite Dealers-Onxy", "Granite Distributors", "Granite Exporters", 
+        "Granite Flooring Dealers", "Granite Kerb Stone Manufacturers", "Granite Manufacturers", 
+        "Granite Marble Tile Dealers", "Granite Marble Tile Distributors", "Granite Marble Tile Exporters", 
+        "Granite Marble Tile Wholesalers", "Granite Slab Black Manufacturers", "Granite Slab Dealers", 
+        "Granite Slab Manufacturers", "Granite Stockists", "Granite Stone Dealers", "Granite Stone Manufacturers", 
+        "Granite Tile Dealers", "Granite Tile Distributors", "Granite Tile Manufacturers", 
+        "Granite Tile Wholesalers", "Granite Wholesalers", "Green Granite Dealers", "Green Granite Wholesalers", 
+        "Green Marble Block Dealers", "Green Marble Chip Dealers", "Green Marble Dealers", 
+        "Green Marble Distributors", "Green Marble Exporters", "Green Marble Manufacturers", 
+        "Green Marble Tile Dealers", "Green Marble Wholesalers", "Himalayan Blue Granite Manufacturers", 
+        "ITA Gold Marble Manufacturers", "Imperial Gold Granite Manufacturers", "Imperial Red Granite Manufacturers", 
+        "Imperial White Granite Manufacturers", "Imported Granite Dealers", "Imported Granite Marble Tile Dealers", 
+        "Imported Granite Wholesalers", "Imported Marble Dealers", "Imported Marble Distributors", 
+        "Imported Marble Wholesalers", "Indian Marble Dealers", "Iranian Marble Dealers", 
+        "Italian Marble Dealers", "Italian Marble Dealers-Mgm", "Italian Marble Distributors", 
+        "Italian Marble Flooring Dealers", "Italian Marble Manufacturers", "Italian Marble Stockists", 
+        "Italian Marble Wholesalers", "Jaisalmer Yellow Marble Dealers", "Jaisalmer Yellow Marble Manufacturers", 
+        "Jet Black Granite Dealers", "Kashmir White Granite Manufacturers", "Katni Marble Dealers", 
+        "Katni Marble Distributors", "Katni Marble Manufacturers", "Korean Marble Dealers", 
+        "Lakha Red Granite Dealers", "Lakha Red Granite Manufacturers", "Lavender Blue Granite Manufacturers", 
+        "Makrana Marble Dealers", "Makrana Marble Distributors", "Makrana Marble Manufacturers", 
+        "Makrana Marble Wholesalers", "Marble Block Dealers", "Marble Block Manufacturers", 
+        "Marble Brick Manufacturers", "Marble Chip Dealers", "Marble Chip Manufacturers", 
+        "Marble Contractors", "Marble Dealers-Wonder White", "Marble Distributors", 
+        "Marble Exporters", "Marble Flooring Contractors"
     ]
 }
 
@@ -155,5 +218,7 @@ def get_subcategories_for_main(main_category: str) -> list[str]:
         return MAPPED_SUBCATEGORIES.get("Rentals")
     if key.lower() in ("civil contractors", "contractors"):
         return MAPPED_SUBCATEGORIES.get("Civil Contractors")
+    if key.lower() in ("marble dealers", "granite dealers", "marble & granite"):
+        return MAPPED_SUBCATEGORIES.get("Marble Dealers")
     return MAPPED_SUBCATEGORIES.get(key, [])
 
