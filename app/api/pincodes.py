@@ -77,21 +77,22 @@ def get_famous_places(district: str):
     Returns a curated list of famous places for a given district.
     """
     # Simple hardcoded dict for Kerala districts
+    # Expanded list for Kerala districts
     places = {
-        "thiruvananthapuram": ["Kovalam", "Varkala", "Technopark", "Pattom", "Kazhakootam", "Neyyattinkara", "Attingal"],
-        "kollam": ["Karunagappally", "Kottarakkara", "Punalur", "Paravur", "Sasthamcotta"],
-        "pathanamthitta": ["Adoor", "Thiruvalla", "Ranni", "Mallappally", "Kozhencherry"],
-        "alappuzha": ["Kuttanad", "Chengannur", "Mavelikkara", "Cherthala", "Ambalappuzha", "Haripad"],
-        "kottayam": ["Pala", "Changanassery", "Vaikom", "Kanjirappally", "Ettumanoor"],
-        "idukki": ["Munnar", "Thodupuzha", "Adimali", "Kumily", "Nedumkandam"],
-        "ernakulam": ["Kochi", "Edappally", "Kakkanad", "Aluva", "Angamaly", "Perumbavoor", "Muvattupuzha", "Kothamangalam", "Tripunithura"],
-        "thrissur": ["Chalakudy", "Irinjalakuda", "Guruvayur", "Kodungallur", "Kunnamkulam", "Wadakkanchery"],
-        "palakkad": ["Ottapalam", "Shornur", "Mannarkkad", "Chittur", "Pattambi", "Alathur"],
-        "malappuram": ["Manjeri", "Tirur", "Ponnani", "Perinthalmanna", "Kottakkal", "Nilambur"],
-        "kozhikode": ["Vadakara", "Koyilandy", "Thamarassery", "Feroke", "Ramanattukara", "Mukkam"],
-        "wayanad": ["Kalpetta", "Sulthan Bathery", "Mananthavady", "Vythiri", "Meenangadi"],
-        "kannur": ["Thalassery", "Payyanur", "Taliparamba", "Mattannur", "Iritty", "Kuthuparamba"],
-        "kasaragod": ["Kanhangad", "Uppala", "Trikaripur", "Nileshwar", "Cheruvathur", "Manjeshwar"]
+        "thiruvananthapuram": ["Kovalam", "Varkala", "Technopark", "Pattom", "Kazhakootam", "Neyyattinkara", "Attingal", "Palayam", "Sasthamangalam", "Kowdiar", "Thampanoor", "East Fort", "Vazhuthacaud", "Sreekaryam", "Vattiyoorkavu", "Nemom", "Nedumangad", "Kattakada"],
+        "kollam": ["Karunagappally", "Kottarakkara", "Punalur", "Paravur", "Sasthamcotta", "Chinnakada", "Chathannoor", "Kundara", "Pathanapuram", "Oachira", "Kottiyam"],
+        "pathanamthitta": ["Adoor", "Thiruvalla", "Ranni", "Mallappally", "Kozhencherry", "Konni", "Pandalam", "Pathanamthitta Town"],
+        "alappuzha": ["Kuttanad", "Chengannur", "Mavelikkara", "Cherthala", "Ambalappuzha", "Haripad", "Kayamkulam", "Aroor", "Edathua", "Alappuzha Town"],
+        "kottayam": ["Pala", "Changanassery", "Vaikom", "Kanjirappally", "Ettumanoor", "Kottayam Town", "Kanjikuzhy", "Kanjirappally", "Ponkunnam", "Erattupetta", "Kuravilangad"],
+        "idukki": ["Munnar", "Thodupuzha", "Adimali", "Kumily", "Nedumkandam", "Kattappana", "Peermade", "Devikulam", "Vagamon", "Idukki Township"],
+        "ernakulam": ["Kochi", "Edappally", "Kakkanad", "Aluva", "Angamaly", "Perumbavoor", "Muvattupuzha", "Kothamangalam", "Tripunithura", "Vyttila", "Palarivattom", "Kaloor", "Marine Drive", "Fort Kochi", "Mattancherry", "Kalamassery", "Nedumbassery", "Piravom", "Koothattukulam", "North Paravur"],
+        "thrissur": ["Chalakudy", "Irinjalakuda", "Guruvayur", "Kodungallur", "Kunnamkulam", "Wadakkanchery", "Thrissur Round", "Punkunnam", "Ayyanthole", "Kuriachira", "Ollur", "Mannuthy", "Chavakkad", "Triprayar", "Pudukkad"],
+        "palakkad": ["Ottapalam", "Shornur", "Mannarkkad", "Chittur", "Pattambi", "Alathur", "Palakkad Town", "Kalpathy", "Malampuzha", "Walayar", "Vadakkencherry", "Nemmara"],
+        "malappuram": ["Manjeri", "Tirur", "Ponnani", "Perinthalmanna", "Kottakkal", "Nilambur", "Malappuram Town", "Kondotty", "Edappal", "Valanchery", "Parappanangadi", "Tanur"],
+        "kozhikode": ["Vadakara", "Koyilandy", "Thamarassery", "Feroke", "Ramanattukara", "Mukkam", "Kozhikode Beach", "SM Street", "Nadakkavu", "Mavoor Road", "Medical College", "Balussery", "Kunnamangalam", "Perambra"],
+        "wayanad": ["Kalpetta", "Sulthan Bathery", "Mananthavady", "Vythiri", "Meenangadi", "Panamaram", "Pulpally", "Ambalavayal", "Meppadi", "Padinjarathara"],
+        "kannur": ["Thalassery", "Payyanur", "Taliparamba", "Mattannur", "Iritty", "Kuthuparamba", "Kannur Town", "Payyambalam", "Chirakkal", "Pappinisseri", "Sreekandapuram", "Valapattanam", "Alakode"],
+        "kasaragod": ["Kanhangad", "Uppala", "Trikaripur", "Nileshwar", "Cheruvathur", "Manjeshwar", "Kasaragod Town", "Badiyadka", "Kumbla", "Mulleria", "Udma", "Bekal"]
     }
     
     district_lower = district.lower().strip()
