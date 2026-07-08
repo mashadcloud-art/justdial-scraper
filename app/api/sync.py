@@ -1104,15 +1104,27 @@ def get_scrape_status(last_idx: int = 0):
     global scraping_in_progress, scraping_started_at
     import time as _time
     new_logs, next_idx = scraper_logger.get_logs(last_idx)
+    
+    is_running = scraping_in_progress
+    status_file = os.path.join(settings.DATA_FOLDER, "last_scrape_run.json")
+    if not is_running and os.path.exists(status_file):
+        try:
+            with open(status_file, "r") as f:
+                data = json.load(f)
+                if data.get("status") == "running":
+                    is_running = True
+        except:
+            pass
+            
     running_for = None
-    if scraping_in_progress and scraping_started_at:
+    if is_running and scraping_started_at:
         running_for = int(_time.time() - scraping_started_at)
     # Auto-expire after 30 min
     if scraping_in_progress and running_for and running_for > 1800:
         scraping_in_progress = False
         scraping_started_at = None
     return {
-        "running": scraping_in_progress,
+        "running": is_running,
         "running_for_seconds": running_for,
         "logs": new_logs,
         "next_idx": next_idx
