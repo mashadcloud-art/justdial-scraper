@@ -9,6 +9,7 @@ import time
 import re
 import threading
 import os
+from pydantic import BaseModel
 
 from app.database import get_db
 from app import models
@@ -537,6 +538,69 @@ def import_categories_from_url(request: ImportUrlRequest):
         "status": "success",
         "main_category": main_category,
         "tree": category_tree
+    }
+class ImportCategoriesRequest(BaseModel):
+    html: str
+    main_category: Optional[str] = None
+
+@router.post("/import")
+def import_categories(
+    req: ImportCategoriesRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Parse raw HTML to extract categories and subcategories,
+    then save them to the database.
+    """
+    html_content = req.html
+    main_cat = req.main_category or "Uncategorized"
+    
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Simple parsing heuristic: look for <li>, <a>, or elements with text
+    # that look like categories. We will extract text.
+    # Often they are inside lists or divs with specific classes.
+    # We will grab <a> tags or <li> texts.
+    
+    # Try <a> tags first as they often represent clickable categories
+    items = soup.find_all('a')
+    if not items:
+        # Fallback to list items
+        items = soup.find_all('li')
+    
+    if not items:
+        # Fallback to any span or div with class containing 'category' or 'title'
+        items = soup.find_all(['span', 'div'], class_=re.compile(r'category|title|name', re.I))
+    
+    extracted = set()
+    for el in items:
+        text = el.get_text(separator=' ', strip=True)
+        # Clean up text
+        text = re.sub(r'\s+', ' ', text)
+        if text and len(text) > 2 and len(text) < 100:
+            extracted.add(text)
+            
+    # Save to database
+    added_count = 0
+    for cat_name in extracted:
+        # Check if exists
+        existing = db.query(models.Category).filter(models.Category.name == cat_name).first()
+        if not existing:
+            new_cat = models.Category(
+                name=cat_name,
+                parent_category=main_cat,
+                is_active=True
+            )
+            db.add(new_cat)
+            added_count += 1
+            
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"Successfully parsed and added {added_count} new subcategories under '{main_cat}'.",
+        "added_count": added_count,
+        "found_count": len(extracted)
     }
 
 @router.get("/list")

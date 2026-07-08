@@ -68,3 +68,71 @@ def get_pincodes_for_district(district_name: str):
         print(f"Error reading pincodes: {e}")
         return []
 
+from fastapi import APIRouter
+router = APIRouter(prefix="/api/v1/pincodes", tags=["pincodes"])
+
+@router.get("/famous-places")
+def get_famous_places(district: str):
+    """
+    Returns a curated list of famous places for a given district.
+    """
+    # Simple hardcoded dict for Kerala districts
+    places = {
+        "thiruvananthapuram": ["Kovalam", "Varkala", "Technopark", "Pattom", "Kazhakootam", "Neyyattinkara", "Attingal"],
+        "kollam": ["Karunagappally", "Kottarakkara", "Punalur", "Paravur", "Sasthamcotta"],
+        "pathanamthitta": ["Adoor", "Thiruvalla", "Ranni", "Mallappally", "Kozhencherry"],
+        "alappuzha": ["Kuttanad", "Chengannur", "Mavelikkara", "Cherthala", "Ambalappuzha", "Haripad"],
+        "kottayam": ["Pala", "Changanassery", "Vaikom", "Kanjirappally", "Ettumanoor"],
+        "idukki": ["Munnar", "Thodupuzha", "Adimali", "Kumily", "Nedumkandam"],
+        "ernakulam": ["Kochi", "Edappally", "Kakkanad", "Aluva", "Angamaly", "Perumbavoor", "Muvattupuzha", "Kothamangalam", "Tripunithura"],
+        "thrissur": ["Chalakudy", "Irinjalakuda", "Guruvayur", "Kodungallur", "Kunnamkulam", "Wadakkanchery"],
+        "palakkad": ["Ottapalam", "Shornur", "Mannarkkad", "Chittur", "Pattambi", "Alathur"],
+        "malappuram": ["Manjeri", "Tirur", "Ponnani", "Perinthalmanna", "Kottakkal", "Nilambur"],
+        "kozhikode": ["Vadakara", "Koyilandy", "Thamarassery", "Feroke", "Ramanattukara", "Mukkam"],
+        "wayanad": ["Kalpetta", "Sulthan Bathery", "Mananthavady", "Vythiri", "Meenangadi"],
+        "kannur": ["Thalassery", "Payyanur", "Taliparamba", "Mattannur", "Iritty", "Kuthuparamba"],
+        "kasaragod": ["Kanhangad", "Uppala", "Trikaripur", "Nileshwar", "Cheruvathur", "Manjeshwar"]
+    }
+    
+    district_lower = district.lower().strip()
+    return places.get(district_lower, [])
+
+@router.get("/{district}")
+def get_pincodes_with_names(district: str):
+    """
+    Returns pincodes and place names for a district.
+    """
+    if not os.path.exists(CACHE_FILE):
+        return []
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            all_data = json.load(f)
+            
+        results = []
+        seen_pins = set()
+        search_district = district.lower().strip()
+        
+        normalization_map = {
+            "kasaragod": "kasargod",
+            "alleppey": "alappuzha",
+            "trivandrum": "thiruvananthapuram",
+            "trichur": "thrissur",
+            "calicut": "kozhikode"
+        }
+        search_district = normalization_map.get(search_district, search_district)
+
+        for item in all_data:
+            d_name = str(item.get("districtName", "")).lower().strip()
+            if search_district in d_name:
+                pin = str(item.get("pincode", ""))
+                name = str(item.get("officeName", ""))
+                if pin and pin not in seen_pins:
+                    seen_pins.add(pin)
+                    # Clean up BO/SO/HO from place name
+                    clean_name = re.sub(r'\s+(B\.O|S\.O|H\.O)$', '', name, flags=re.IGNORECASE)
+                    results.append({"pin": pin, "name": clean_name})
+                    
+        return results
+    except Exception as e:
+        print(f"Error reading pincodes: {e}")
+        return []

@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings
 from app.database import engine, Base
-from app.api import sync, categories  # 🟢 ADDED CATEGORIES HERE
+from app.api import sync, categories, pincodes  # 🟢 ADDED CATEGORIES AND PINCODES HERE
 from app.api import gmaps as gmaps_api  # 🟢 Google Maps scraper
 from app.api import simple_scrape as simple_scrape_api  # 🟢 Simple one-shot scraper
 
@@ -93,6 +93,7 @@ async def add_security_headers(request: Request, call_next):
 
 app.include_router(sync.router, prefix="/api/v1")
 app.include_router(categories.router)
+app.include_router(pincodes.router)
 app.include_router(gmaps_api.router)  # Google Maps scraper
 app.include_router(simple_scrape_api.router)  # Simple one-shot scraper
 

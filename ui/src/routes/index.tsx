@@ -136,8 +136,8 @@ const CITIES: Record<string, string[]> = {
 };
 import { MAPPED_SUBCATEGORIES } from "@/lib/mappedCategories";
 
-const CATEGORIES = Object.keys(MAPPED_SUBCATEGORIES);
-const SUBCATEGORIES: Record<string, string[]> = MAPPED_SUBCATEGORIES;
+export let CATEGORIES = Object.keys(MAPPED_SUBCATEGORIES);
+export let SUBCATEGORIES: Record<string, string[]> = MAPPED_SUBCATEGORIES;
 
 const MOCK_MENUS: MenuItem[][] = [
   [
@@ -227,6 +227,7 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("scraper");
   const [detailTabs, setDetailTabs] = useState<Business[]>([]);
   const [maximized, setMaximized] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // sidebar: collapsed by default (compact mode), expanded when maximized
   const sidebarCollapsed = !maximized;
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -253,6 +254,18 @@ function Dashboard() {
   const [importUrl, setImportUrl] = useState("");
   const [importingUrl, setImportingUrl] = useState(false);
   const [categoryTree, setCategoryTree] = useState<any[]>([]);
+
+  // HTML Category Importer States
+  const [importHtmlOpen, setImportHtmlOpen] = useState(false);
+  const [importHtmlContent, setImportHtmlContent] = useState("");
+  const [importHtmlMainCategory, setImportHtmlMainCategory] = useState("");
+  const [isImportingHtml, setIsImportingHtml] = useState(false);
+
+  // Advanced Location States
+  const [locationMode, setLocationMode] = useState<"custom"|"pincode"|"famous">("custom");
+  const [availablePincodes, setAvailablePincodes] = useState<{pin: string, name: string}[]>([]);
+  const [availableFamousPlaces, setAvailableFamousPlaces] = useState<string[]>([]);
+
 
   // Scraped today breakdown modal states
   const [todayBreakdownOpen, setTodayBreakdownOpen] = useState(false);
@@ -557,11 +570,71 @@ function Dashboard() {
   const [coverageData, setCoverageData] = useState<Record<string, Record<string, number>>>({});
   const [loadingCoverage, setLoadingCoverage] = useState(false);
 
+  const [categoryRefreshTick, setCategoryRefreshTick] = useState(0);
+
+  async function fetchDbCategories() {
+    try {
+      const res = await fetch(`${API}/categories/list`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.categories && data.categories.length > 0) {
+          let newSubs: Record<string, string[]> = {};
+          for (const c of data.categories) {
+            const main = c.parent || "Uncategorized";
+            if (!newSubs[main]) newSubs[main] = [];
+            if (!newSubs[main].includes(c.name)) {
+              newSubs[main].push(c.name);
+            }
+          }
+          // Preserve MAPPED_SUBCATEGORIES keys and merge
+          for (const key of Object.keys(MAPPED_SUBCATEGORIES)) {
+            if (!newSubs[key]) newSubs[key] = [...MAPPED_SUBCATEGORIES[key]];
+            else {
+              const merged = new Set([...newSubs[key], ...MAPPED_SUBCATEGORIES[key]]);
+              newSubs[key] = Array.from(merged);
+            }
+          }
+          
+          CATEGORIES.length = 0;
+          CATEGORIES.push(...Object.keys(newSubs));
+          for (const k of Object.keys(SUBCATEGORIES)) delete SUBCATEGORIES[k];
+          for (const k of Object.keys(newSubs)) SUBCATEGORIES[k] = newSubs[k];
+          
+          setCategoryRefreshTick(Date.now());
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Fetch advanced location data when district changes
+  useEffect(() => {
+    async function fetchLocationData() {
+      if (!city) return;
+      try {
+        const pinRes = await fetch(`${API}/pincodes/${encodeURIComponent(city)}`);
+        if (pinRes.ok) {
+          const pinData = await pinRes.json();
+          setAvailablePincodes(pinData);
+        }
+        
+        const famousRes = await fetch(`${API}/pincodes/famous-places?district=${encodeURIComponent(city)}`);
+        if (famousRes.ok) {
+          const famousData = await famousRes.json();
+          setAvailableFamousPlaces(famousData);
+        }
+      } catch (e) {
+        console.error("Failed to fetch location data", e);
+      }
+    }
+    fetchLocationData();
+  }, [city]);
+
   useEffect(() => {
     fetchStats();
     fetchCoverage();
     fetchRestaurants();
     fetchAdbDevices();
+    fetchDbCategories();
 
     // Check if scraper is already running in backend on load
     const checkActiveScrapers = async () => {
@@ -1318,8 +1391,36 @@ function Dashboard() {
 
   const toggleRow = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSelected((s) => s.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.id)));
-  const sort = (k: keyof Business) => { if (sortKey === k) setSortDir((d) => d === "asc" ? "desc" : "asc"); else { setSortKey(k); setSortDir("asc"); } };
+  const sort = (k: keyof Business) => { if (sortKey === k) setSortDir((d) => d === "asc" ? "desc" : "asc"); else { setSortKey(k); setSortKey(k); setSortDir("asc"); } };
   const exportData = (kind: "csv" | "xlsx") => { const target = selected.size > 0 ? rows.filter((r) => selected.has(r.id)) : filtered; toast.success(`Exported ${target.length} rows as ${kind.toUpperCase()}`); };
+
+  async function submitHtmlImport() {
+    if (!importHtmlContent.trim()) { toast.error("Please paste some HTML content first"); return; }
+    if (!importHtmlMainCategory.trim()) { toast.error("Please enter a Main Category name"); return; }
+    
+    setIsImportingHtml(true);
+    try {
+      const res = await fetch(`${API}/categories/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: importHtmlContent, main_category: importHtmlMainCategory })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message);
+        addLog(true, `[HTML Import] ${data.message}`);
+        setImportHtmlOpen(false);
+        setImportHtmlContent("");
+        setImportHtmlMainCategory("");
+        await fetchDbCategories();
+      } else {
+        toast.error(data.detail || data.message || "Import failed");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setIsImportingHtml(false);
+  }
 
   const confirmBulkDelete = async () => {
     const ids = Array.from(selected);
@@ -1375,12 +1476,22 @@ function Dashboard() {
         : "w-full max-w-6xl h-[85vh] sm:h-[800px] mx-auto sm:mt-4 rounded-none sm:rounded-xl ring-0 sm:ring-1 ring-border shadow-none sm:shadow-2xl" // responsive windowed mode
     )}>
 
+      {/* ── Mobile Sidebar Backdrop ── */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden transition-opacity"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* ── Sidebar ── */}
       <aside className={cn(
         "shrink-0 border-r border-border flex flex-col transition-all duration-200 overflow-hidden",
+        "fixed md:static inset-y-0 left-0 z-50 md:flex bg-sidebar",
+        mobileSidebarOpen ? "translate-x-0 w-56 shadow-2xl" : "-translate-x-full md:translate-x-0",
         sidebarCollapsed
-          ? "w-14 bg-[#1a1a2e]"          // dark slim rail
-          : "w-56 bg-sidebar"             // full light/dark sidebar
+          ? "md:w-14 bg-[#1a1a2e]"          // dark slim rail
+          : "md:w-56 bg-sidebar"             // full light/dark sidebar
       )}>
 
         {/* Logo row */}
@@ -1406,12 +1517,9 @@ function Dashboard() {
 
         {/* Nav items */}
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => setActiveTab("scraper")}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<AppWindow className="size-4" />}     label="Web Scraper"     active={activeTab === "web_scraper"} onClick={() => setActiveTab("web_scraper")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<Cloud className="size-4" />}         label="Cloud Direct"    active={activeTab === "cloud_direct"} onClick={() => setActiveTab("cloud_direct")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<MapPin className="size-4" />}         label="Maps Scraper"  active={activeTab === "gmaps"}     onClick={() => setActiveTab("gmaps")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => setActiveTab("coverage")} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => { setActiveTab("scraper"); setMobileSidebarOpen(false); }}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => { setActiveTab("dashboard"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => { setActiveTab("coverage"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
@@ -1491,6 +1599,13 @@ function Dashboard() {
         {/* Header */}
         <header className="h-12 shrink-0 border-b border-border flex items-center justify-between px-4 bg-background/60 backdrop-blur">
           <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-1.5 rounded-lg hover:bg-accent text-foreground md:hidden mr-1 shrink-0"
+              title="Open menu"
+            >
+              <PanelLeftOpen className="size-4" />
+            </button>
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
               {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
@@ -1642,6 +1757,9 @@ function Dashboard() {
                       <div className="flex items-center gap-2">
                         <MapPin className="size-4 text-brand" />
                         <h3 className="text-base font-semibold">Location & Category</h3>
+                        <button onClick={() => setImportHtmlOpen(true)} className="ml-2 text-[10px] bg-brand/10 text-brand px-2 py-0.5 rounded font-semibold hover:bg-brand/20 transition-all">
+                          + Import HTML
+                        </button>
                         {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
                         {listingCount && !fetchingCount && (
                           <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
@@ -1682,14 +1800,41 @@ function Dashboard() {
                             className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                           />
                         </FormField>
-                        <FormField label="Target Location (PIN or Town)">
-                          <input 
-                            type="text" 
-                            value={adbLocation} 
-                            onChange={(e) => setAdbLocation(e.target.value)} 
-                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
-                            placeholder="e.g. 671122 Thalangara" 
-                          />
+                        <FormField label="Target Location Type">
+                          <div className="flex gap-1.5 mb-1.5">
+                            <button type="button" className={`flex-1 py-1 text-[10px] rounded font-medium ${locationMode === 'custom' ? 'bg-brand text-white' : 'bg-muted text-foreground'}`} onClick={() => setLocationMode('custom')}>Custom</button>
+                            <button type="button" className={`flex-1 py-1 text-[10px] rounded font-medium ${locationMode === 'pincode' ? 'bg-brand text-white' : 'bg-muted text-foreground'}`} onClick={() => setLocationMode('pincode')}>PINs</button>
+                            <button type="button" className={`flex-1 py-1 text-[10px] rounded font-medium ${locationMode === 'famous' ? 'bg-brand text-white' : 'bg-muted text-foreground'}`} onClick={() => setLocationMode('famous')}>Famous Places</button>
+                          </div>
+                          {locationMode === 'custom' && (
+                            <input 
+                              type="text" 
+                              value={adbLocation} 
+                              onChange={(e) => setAdbLocation(e.target.value)} 
+                              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                              placeholder="e.g. 671122 Thalangara" 
+                            />
+                          )}
+                          {locationMode === 'pincode' && (
+                            <select 
+                              value={adbLocation} 
+                              onChange={(e) => setAdbLocation(e.target.value)} 
+                              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                            >
+                              <option value="">Select PIN / Place...</option>
+                              {availablePincodes.map((p, i) => <option key={i} value={`${p.pin} ${p.name}`}>{p.pin} - {p.name}</option>)}
+                            </select>
+                          )}
+                          {locationMode === 'famous' && (
+                            <select 
+                              value={adbLocation} 
+                              onChange={(e) => setAdbLocation(e.target.value)} 
+                              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                            >
+                              <option value="">Select Famous Place...</option>
+                              {availableFamousPlaces.map((p, i) => <option key={i} value={p}>{p}</option>)}
+                            </select>
+                          )}
                         </FormField>
                         <FormField label="Search Category (Optional override)">
                           <input 
@@ -1750,8 +1895,8 @@ function Dashboard() {
                     {/* Right column */}
                     <div className="flex flex-col gap-5">
 
-                      {/* Emulator Control Center */}
-                      {engine === "emulator" && (
+                      {/* Emulator Control Center - DISABLED by user request */}
+                      {false && engine === "emulator" && (
                         <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-6">
                           <div className="flex items-center gap-2 border-b pb-3">
                             <Database className="size-5 text-brand" />
@@ -2109,8 +2254,8 @@ function Dashboard() {
                       </div>
                     </section>
 
-                    {/* Emulator Control Center (Mobile/Compact Layout) */}
-                    {engine === "emulator" && (
+                    {/* Emulator Control Center (Mobile/Compact Layout) - DISABLED */}
+                    {false && engine === "emulator" && (
                       <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-3">
                         <div className="flex items-center gap-2 border-b pb-1.5">
                           <Database className="size-3.5 text-brand" />
@@ -4294,6 +4439,39 @@ function GMapsPanel({ API, addLog, onDone }: {
           </section>
         )}
       </div>
+
+      {importHtmlOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-2xl rounded-2xl shadow-2xl ring-1 ring-border p-6 flex flex-col max-h-[90vh]">
+            <h2 className="text-lg font-bold mb-4">Import Categories from HTML</h2>
+            <div className="space-y-4 overflow-y-auto flex-1">
+              <FormField label="Main Category">
+                <input 
+                  type="text" 
+                  value={importHtmlMainCategory} 
+                  onChange={(e) => setImportHtmlMainCategory(e.target.value)} 
+                  className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
+                  placeholder="e.g. Restaurants" 
+                />
+              </FormField>
+              <FormField label="Raw HTML Content">
+                <textarea 
+                  value={importHtmlContent} 
+                  onChange={(e) => setImportHtmlContent(e.target.value)} 
+                  className="w-full h-48 rounded-lg p-3 text-sm font-mono bg-background ring-1 ring-border outline-none focus:ring-brand resize-none" 
+                  placeholder="<ul class='some-list'><li>Fast Food</li><li>Cafe</li></ul>..." 
+                />
+              </FormField>
+            </div>
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+              <Button onClick={() => setImportHtmlOpen(false)} variant="outline">Cancel</Button>
+              <Button onClick={submitHtmlImport} disabled={isImportingHtml} className="bg-brand text-white shadow-brand">
+                {isImportingHtml ? "Importing..." : "Process & Save"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
