@@ -1801,6 +1801,10 @@ function Dashboard() {
                         <div className="flex items-center gap-2">
                           <MapPin className="size-4 text-brand" />
                           <h3 className="text-base font-semibold">Location & Category</h3>
+                          {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
+                          {listingCount && !fetchingCount && (
+                            <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
+                          )}
                         </div>
                         <button 
                           onClick={() => setImportHtmlOpen(true)}
@@ -1808,11 +1812,6 @@ function Dashboard() {
                         >
                           <span>+</span> Import HTML
                         </button>
-                      </div>
-                        {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
-                        {listingCount && !fetchingCount && (
-                          <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
-                        )}
                       </div>
                       {/* Search */}
                       <div className="flex items-center gap-2 h-10 px-3 rounded-lg ring-1 ring-border bg-background focus-within:ring-brand transition-all">
