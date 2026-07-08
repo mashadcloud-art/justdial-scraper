@@ -188,7 +188,7 @@ def _get_adb_devices(adb_path):
         if os.name != "nt":
             # On remote Linux server, connect to desktop emulator over Tailscale VPN
             try:
-                subprocess.run(f'"{adb_path}" connect 100.103.62.50:5555', shell=True, timeout=8)
+                subprocess.run(f'"{adb_path}" connect 100.103.62.50:5555', shell=True, timeout=1, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
         else:
