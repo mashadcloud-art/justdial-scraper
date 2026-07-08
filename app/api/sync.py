@@ -1047,6 +1047,15 @@ async def trigger_cli_scrape(request: Request, background_tasks: BackgroundTasks
     if not cmd_str.startswith("python jd_api_scraper.py") and not cmd_str.startswith("python3 jd_api_scraper.py") and not cmd_str.startswith("python scrape_"):
         raise HTTPException(status_code=400, detail="Only jd_api_scraper.py or scrape_*.py commands are allowed for safety.")
         
+    actual_cmd = cmd_str
+    if sys.platform == "win32":
+        win_python = r"C:\Users\PC\AppData\Local\Programs\Python\Python310\python.exe"
+        if os.path.exists(win_python):
+            if cmd_str.startswith("python "):
+                actual_cmd = cmd_str.replace("python ", f'"{win_python}" ', 1)
+            elif cmd_str.startswith("python3 "):
+                actual_cmd = cmd_str.replace("python3 ", f'"{win_python}" ', 1)
+
     scraper_logger.clear()
     
     def run_cli_scrape():
@@ -1063,7 +1072,7 @@ async def trigger_cli_scrape(request: Request, background_tasks: BackgroundTasks
 
         try:
             process = subprocess.Popen(
-                shlex.split(cmd_str),
+                shlex.split(actual_cmd),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
