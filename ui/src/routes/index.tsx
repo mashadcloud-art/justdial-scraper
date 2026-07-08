@@ -320,6 +320,29 @@ function Dashboard() {
   const [loadingTodayBreakdown, setLoadingTodayBreakdown] = useState(false);
   const [breakdownTab, setBreakdownTab] = useState<'city' | 'category' | 'combo'>('city');
 
+  const [lastScrapeRun, setLastScrapeRun] = useState<{
+    district?: string;
+    category?: string;
+    max_pages?: number;
+    status?: string;
+    timestamp?: number;
+    last_target?: string;
+  } | null>(null);
+
+  async function fetchLastScrapeRun() {
+    try {
+      const res = await fetch(`${API}/scrape/last-run`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.status !== "none") {
+          setLastScrapeRun(data);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   async function fetchTodayBreakdown() {
     setLoadingTodayBreakdown(true);
     try {
@@ -680,6 +703,7 @@ function Dashboard() {
     fetchDbCategories();
 
     // Check if scraper is already running in backend on load
+    fetchLastScrapeRun();
     const checkActiveScrapers = async () => {
       try {
         const adbStatusRes = await fetch(`${LOCAL_API}/adb/status`);
@@ -704,6 +728,7 @@ function Dashboard() {
                 
                 const checkAdb = await fetch(`${LOCAL_API}/adb/status`);
                 const adbStatus = await checkAdb.json();
+                fetchLastScrapeRun();
                 
                 if (statusData.running === false && adbStatus.running === false) {
                   clearInterval(intervalId);
@@ -1035,6 +1060,7 @@ function Dashboard() {
                 // Still running, increment progress indicator up to 90%
                 localProgress = Math.min(localProgress + 5, 90);
                 setProgress(localProgress);
+                fetchLastScrapeRun();
                 await fetchStats(); // Fetch stats dynamically during scraping
               }
             }
@@ -1274,8 +1300,64 @@ function Dashboard() {
     toast.error("Scraping stopped");
     try {
       await fetch(`${API}/scrape/stop`, { method: "POST" });
+      setTimeout(fetchLastScrapeRun, 500); // slight delay to allow writing file
     } catch {
       // Ignore network errors
+    }
+  }
+
+  async function continueScraping() {
+    if (running) return;
+    setRunning(true);
+    setStatus("Scraping...");
+    setProgress(15);
+    addLog(true, `Resuming last scraping session...`);
+    
+    try {
+      const res = await fetch(`${API}/scrape/continue`, { method: "POST" });
+      if (res.ok) {
+        addLog(true, "Scraping session successfully resumed. Running...");
+        setProgress(35);
+        
+        let localProgress = 35;
+        let lastIdx = 0;
+        const intervalId = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${API}/scrape/status?last_idx=${lastIdx}`);
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.logs && statusData.logs.length > 0) {
+                setLog((l) => [...l, ...statusData.logs]);
+                lastIdx = statusData.next_idx;
+              }
+              if (statusData.running === false) {
+                clearInterval(intervalId);
+                setProgress(100);
+                setRunning(false);
+                setStatus("Complete");
+                toast.success("Scrape complete");
+                await fetchRestaurants();
+                await fetchStats();
+              } else {
+                localProgress = Math.min(localProgress + 5, 90);
+                setProgress(localProgress);
+                fetchLastScrapeRun();
+                await fetchStats();
+              }
+            }
+          } catch (err) { }
+        }, 1500);
+        timerRef.current = intervalId;
+      } else {
+        const err = await res.text();
+        addLog(false, `Resuming scraper failed: ${err}`);
+        setRunning(false);
+        setStatus("Stopped");
+      }
+    } catch (e: any) {
+      addLog(false, `Connection error resuming scraper: ${e.message}`);
+      setRunning(false);
+      setStatus("Stopped");
     }
   }
 
@@ -1943,7 +2025,87 @@ function Dashboard() {
                     {/* Right column */}
                     <div className="flex flex-col gap-5">
 
-                      {/* Emulator Control Center - DISABLED by user request */}
+                      {/* ⚙️ SCRAPER CONTROL CENTER */}
+                      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                        <div className="flex items-center gap-2 border-b pb-3 justify-between">
+                          <div className="flex items-center gap-2">
+                            <Activity className="size-5 text-brand" />
+                            <h3 className="text-base font-semibold">Scraper Control Center</h3>
+                          </div>
+                          {lastScrapeRun && (
+                            <span className={cn(
+                              "text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase tracking-wider",
+                              lastScrapeRun.status === "running" ? "bg-amber-500/10 text-amber-500 animate-pulse" :
+                              lastScrapeRun.status === "stopped" ? "bg-red-500/10 text-red-500" :
+                              "bg-emerald-500/10 text-emerald-500"
+                            )}>
+                              {lastScrapeRun.status}
+                            </span>
+                          )}
+                        </div>
+
+                        {lastScrapeRun ? (
+                          <div className="space-y-3 text-sm">
+                            <div className="grid grid-cols-2 gap-2 bg-background/40 p-3 rounded-xl border">
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Last Scrape Category</span>
+                                <span className="font-semibold text-foreground truncate block">{lastScrapeRun.category || "—"}</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground block">District / City</span>
+                                <span className="font-semibold text-foreground truncate block">{lastScrapeRun.district || "—"}</span>
+                              </div>
+                              <div className="col-span-2 mt-2 pt-2 border-t border-dashed">
+                                <span className="text-xs text-muted-foreground block">Last Target Completed / Current Target</span>
+                                <span className="font-semibold text-brand truncate block font-mono">
+                                  📍 {lastScrapeRun.last_target || "None (Starting)"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                              {lastScrapeRun.status === "running" ? (
+                                <Button 
+                                  onClick={stopScraping} 
+                                  variant="destructive"
+                                  className="flex-1 h-10 text-xs font-semibold animate-pulse"
+                                >
+                                  <Square className="size-3.5 mr-1.5" /> Pause / Stop
+                                </Button>
+                              ) : (
+                                <Button 
+                                  onClick={continueScraping}
+                                  className="flex-1 h-10 text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-brand"
+                                >
+                                  <Play className="size-3.5 mr-1.5" /> Continue Scrape
+                                </Button>
+                              )}
+                              <Button
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`${API}/scrape/reset`, { method: "POST" });
+                                    if (res.ok) {
+                                      toast.success("Lock reset successfully!");
+                                      fetchLastScrapeRun();
+                                    }
+                                  } catch (e: any) {
+                                    toast.error(e.message);
+                                  }
+                                }}
+                                variant="outline"
+                                className="h-10 text-xs px-3 hover:bg-destructive/10 hover:text-destructive hover:border-destructive transition-all"
+                                title="Reset scraper lock if stuck"
+                              >
+                                Reset Lock
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center py-6 bg-background/30 rounded-xl border border-dashed text-xs">
+                            <p className="text-muted-foreground">No recent scraping history found.</p>
+                          </div>
+                        )}
+                      </section>
                       {false && engine === "emulator" && (
                         <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-6">
                           <div className="flex items-center gap-2 border-b pb-3">
@@ -2271,6 +2433,84 @@ function Dashboard() {
 
                   {/* Right column: Controls + Single URL + Activity Log */}
                   <div className="flex flex-col gap-2 min-h-0">
+
+                    {/* ⚙️ SCRAPER CONTROL CENTER (Compact) */}
+                    <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-2 text-xs">
+                      <div className="flex items-center justify-between border-b pb-1.5">
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <Activity className="size-3.5 text-brand" />
+                          <span>Scraper Control Center</span>
+                        </div>
+                        {lastScrapeRun && (
+                          <span className={cn(
+                            "text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-wider",
+                            lastScrapeRun.status === "running" ? "bg-amber-500/10 text-amber-500 animate-pulse" :
+                            lastScrapeRun.status === "stopped" ? "bg-red-500/10 text-red-500" :
+                            "bg-emerald-500/10 text-emerald-500"
+                          )}>
+                            {lastScrapeRun.status}
+                          </span>
+                        )}
+                      </div>
+
+                      {lastScrapeRun ? (
+                        <div className="space-y-2">
+                          <div className="bg-background/40 p-2 rounded-lg border border-dashed text-[10px] space-y-1">
+                            <div>
+                              <span className="text-muted-foreground">Last Category: </span>
+                              <span className="font-semibold text-foreground">{lastScrapeRun.category || "—"}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">District / City: </span>
+                              <span className="font-semibold text-foreground">{lastScrapeRun.district || "—"}</span>
+                            </div>
+                            <div className="pt-1 border-t border-dashed mt-1">
+                              <span className="text-muted-foreground">Last Pincode: </span>
+                              <span className="font-semibold text-brand font-mono">{lastScrapeRun.last_target || "None"}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {lastScrapeRun.status === "running" ? (
+                              <button 
+                                onClick={stopScraping} 
+                                className="flex-1 h-7 text-[10px] font-semibold text-white bg-destructive hover:bg-destructive-dark flex items-center justify-center rounded gap-1 transition-all"
+                              >
+                                <Square className="size-3" /> Pause
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={continueScraping}
+                                className="flex-1 h-7 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center rounded gap-1 transition-all"
+                              >
+                                <Play className="size-3" /> Continue
+                              </button>
+                            )}
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`${API}/scrape/reset`, { method: "POST" });
+                                  if (res.ok) {
+                                    toast.success("Lock reset successfully!");
+                                    fetchLastScrapeRun();
+                                  }
+                                } catch (e: any) {
+                                  toast.error(e.message);
+                                }
+                              }}
+                              className="px-2 h-7 text-[10px] font-semibold bg-secondary hover:bg-secondary-dark rounded border transition-all"
+                              title="Reset scraper lock if stuck"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-2 text-muted-foreground text-[10px]">
+                          No recent scraping history.
+                        </div>
+                      )}
+                    </section>
                     <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-2">
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-semibold tracking-tight">Controls</h3>

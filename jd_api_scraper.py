@@ -1032,6 +1032,29 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
     current_dir = os.path.dirname(os.path.abspath(__file__))
     flag_path = os.path.join(current_dir, "data", "scrape_stop.flag")
 
+    def save_last_run_status(status_str, current_target=None):
+        try:
+            status_file = os.path.join(current_dir, "data", "last_scrape_run.json")
+            os.makedirs(os.path.dirname(status_file), exist_ok=True)
+            data = {
+                "district": district,
+                "category": category,
+                "max_pages": pages,
+                "status": status_str,
+                "timestamp": time.time(),
+                "last_target": current_target
+            }
+            if not current_target and os.path.exists(status_file):
+                with open(status_file, "r") as rf:
+                    existing = json.load(rf)
+                    data["last_target"] = existing.get("last_target")
+            with open(status_file, "w") as wf:
+                json.dump(data, wf, indent=2)
+        except Exception:
+            pass
+
+    save_last_run_status("running")
+
     # ── Target Checkpoint system: resume from where we stopped ──────────────
     checkpoint_path = os.path.join(current_dir, "data", f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
@@ -1061,9 +1084,11 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
 
         # Check stop flag before target
         if os.path.exists(flag_path):
+            save_last_run_status("stopped")
             log("🛑 Scrape task stopped by user request.")
             break
 
+        save_last_run_status("running", current_target=target)
         log(f"\n==========================================")
         log(f"[*] Scraping target {idx+1}/{len(targets)}: {target}")
         log(f"==========================================")
@@ -1076,6 +1101,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
         while page_num < max_pages:
             # Check stop flag inside loop
             if os.path.exists(flag_path):
+                save_last_run_status("stopped")
                 log("🛑 Scrape task stopped by user request.")
                 break
 
@@ -1195,6 +1221,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
     log(f"\n{'='*60}")
     log(f"  Done! Inserted: {total_inserted} | Updated: {total_updated}")
     log(f"{'='*60}")
+    save_last_run_status("done")
     return total_inserted, total_updated
 
 

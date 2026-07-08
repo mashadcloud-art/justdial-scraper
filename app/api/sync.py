@@ -875,6 +875,57 @@ def clear_scrape_history():
             return {"status": "error", "message": f"Failed to clear history: {str(e)}"}
     return {"status": "ok", "message": "No history found to clear."}
 
+@router.get("/scrape/last-run")
+def get_last_scrape_run():
+    status_file = os.path.join(settings.DATA_FOLDER, "last_scrape_run.json")
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            return {"status": "none", "error": str(e)}
+    return {"status": "none"}
+
+@router.post("/scrape/continue")
+def continue_last_scrape(background_tasks: BackgroundTasks = None):
+    status_file = os.path.join(settings.DATA_FOLDER, "last_scrape_run.json")
+    if not os.path.exists(status_file):
+        raise HTTPException(status_code=404, detail="No previous scrape session found to continue.")
+    
+    try:
+        with open(status_file, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read scrape session data: {e}")
+        
+    district = data.get("district")
+    category = data.get("category")
+    max_pages = data.get("max_pages", 10)
+    
+    if not district or not category:
+        raise HTTPException(status_code=400, detail="Incomplete previous scrape session data.")
+        
+    from app.scraper.constants import CITIES
+    state_match = None
+    for s_name, dists in CITIES.items():
+        if district in dists:
+            state_match = s_name
+            break
+    if not state_match:
+        state_match = "Kerala"
+        
+    return trigger_scrape(
+        state=state_match,
+        district=district,
+        main_cat=category,
+        subcat="",
+        max_limit=max_pages,
+        start_page=1,
+        fast_mode=False,
+        engine="jwt_api",
+        background_tasks=background_tasks
+    )
+
 @router.post("/scrape")
 def trigger_scrape(
     state: str,
