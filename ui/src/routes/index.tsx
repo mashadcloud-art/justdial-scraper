@@ -261,6 +261,49 @@ function Dashboard() {
   const [importHtmlMainCategory, setImportHtmlMainCategory] = useState("");
   const [isImportingHtml, setIsImportingHtml] = useState(false);
 
+  async function submitHtmlImport() {
+    if (!importHtmlContent) return;
+    setIsImportingHtml(true);
+    try {
+      const doc = new DOMParser().parseFromString(importHtmlContent, "text/html");
+      const elements = doc.querySelectorAll("*");
+      const cats = new Set<string>();
+      
+      elements.forEach(el => {
+        const text = el.textContent?.trim();
+        if (text && text.length > 2 && text.length < 100 && !text.includes("{") && !text.includes("}")) {
+          cats.add(text);
+        }
+      });
+      
+      const parent = importHtmlMainCategory.trim() || "Uncategorized";
+      
+      const res = await fetch(`${API}/categories/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          html: importHtmlContent,
+          main_category: parent
+        })
+      });
+      
+      if (res.ok) {
+        toast.success(`Successfully imported categories under ${parent}`);
+        setImportHtmlOpen(false);
+        setImportHtmlContent("");
+        setImportHtmlMainCategory("");
+        fetchDbCategories();
+      } else {
+        const data = await res.json();
+        toast.error(data.detail || "Failed to import categories");
+      }
+    } catch (e: any) {
+      toast.error(`Error importing: ${e.message}`);
+    } finally {
+      setIsImportingHtml(false);
+    }
+  }
+
   // Advanced Location States
   const [locationMode, setLocationMode] = useState<"custom"|"pincode"|"famous">("custom");
   const [availablePincodes, setAvailablePincodes] = useState<{pin: string, name: string}[]>([]);
@@ -1754,12 +1797,18 @@ function Dashboard() {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {/* Location & Category — spacious */}
                     <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="size-4 text-brand" />
-                        <h3 className="text-base font-semibold">Location & Category</h3>
-                        <button onClick={() => setImportHtmlOpen(true)} className="ml-2 text-[10px] bg-brand/10 text-brand px-2 py-0.5 rounded font-semibold hover:bg-brand/20 transition-all">
-                          + Import HTML
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="size-4 text-brand" />
+                          <h3 className="text-base font-semibold">Location & Category</h3>
+                        </div>
+                        <button 
+                          onClick={() => setImportHtmlOpen(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-brand bg-brand/10 hover:bg-brand/20 rounded-md transition-colors border border-brand/20"
+                        >
+                          <span>+</span> Import HTML
                         </button>
+                      </div>
                         {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
                         {listingCount && !fetchingCount && (
                           <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
