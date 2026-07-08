@@ -2105,6 +2105,45 @@ function Dashboard() {
                             <p className="text-muted-foreground">No recent scraping history found.</p>
                           </div>
                         )}
+
+                        <div className="border-t border-border pt-4 mt-2 space-y-2">
+                          <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <span>💻 Run Custom CLI Command</span>
+                          </span>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={cliCommand}
+                              onChange={(e) => setCliCommand(e.target.value)}
+                              className="flex-1 h-9 rounded-lg px-3 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand font-mono"
+                              placeholder="python jd_api_scraper.py --district Ernakulam --category Chemists"
+                            />
+                            <Button
+                              onClick={runCliCommand}
+                              disabled={running}
+                              className="h-9 px-4 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 shadow-sm"
+                            >
+                              Run
+                            </Button>
+                          </div>
+                          <div className="flex gap-2.5 items-center text-[10px] text-brand">
+                            <button
+                              type="button"
+                              onClick={() => setCliCommand(`python jd_api_scraper.py --district "${city}" --category "${category}" --pages 10`)}
+                              className="hover:underline"
+                            >
+                              ✨ Sync Form Selection
+                            </button>
+                            <span className="text-muted-foreground">•</span>
+                            <button
+                              type="button"
+                              onClick={() => setCliCommand(`python scrape_pharmacies.py`)}
+                              className="hover:underline"
+                            >
+                              💊 Universal Pharmacies
+                            </button>
+                          </div>
+                        </div>
                       </section>
                       {false && engine === "emulator" && (
                         <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-6">
@@ -2510,6 +2549,41 @@ function Dashboard() {
                           No recent scraping history.
                         </div>
                       )}
+
+                      <div className="border-t border-border pt-2 mt-2 space-y-1">
+                        <span className="text-[10px] font-semibold text-foreground block">💻 Run CLI Command</span>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={cliCommand}
+                            onChange={(e) => setCliCommand(e.target.value)}
+                            className="flex-1 h-7 rounded px-2 text-[10px] bg-background ring-1 ring-border outline-none focus:ring-brand font-mono"
+                          />
+                          <button
+                            onClick={runCliCommand}
+                            disabled={running}
+                            className="h-7 px-2.5 text-[10px] font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded"
+                          >
+                            Run
+                          </button>
+                        </div>
+                        <div className="flex gap-1.5 justify-between text-[9px]">
+                          <button
+                            type="button"
+                            onClick={() => setCliCommand(`python jd_api_scraper.py --district "${city}" --category "${category}" --pages 10`)}
+                            className="text-brand hover:underline"
+                          >
+                            Sync Form Selection
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCliCommand(`python scrape_pharmacies.py`)}
+                            className="text-brand hover:underline"
+                          >
+                            Pharmacies CLI
+                          </button>
+                        </div>
+                      </div>
                     </section>
                     <section className="p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant space-y-2">
                       <div className="flex items-center justify-between">
