@@ -136,8 +136,8 @@ const CITIES: Record<string, string[]> = {
 };
 import { MAPPED_SUBCATEGORIES } from "@/lib/mappedCategories";
 
-export let CATEGORIES = Object.keys(MAPPED_SUBCATEGORIES);
-export let SUBCATEGORIES: Record<string, string[]> = MAPPED_SUBCATEGORIES;
+let CATEGORIES = Object.keys(MAPPED_SUBCATEGORIES);
+let SUBCATEGORIES: Record<string, string[]> = MAPPED_SUBCATEGORIES;
 
 const MOCK_MENUS: MenuItem[][] = [
   [

@@ -655,7 +655,7 @@ async def fetch_extended_images_async(session, doc_id: str, city: str, proxy_con
     return {}
 
 
-async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path):
+async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path, use_proxy: bool = False):
     """Scan a target area/pincode asynchronously."""
     from app.scraper.logger import log
 
@@ -675,7 +675,7 @@ async def scrape_target_async(session, semaphore, target, district, category, li
             break
 
         page_num += 1
-        proxy_config = get_random_proxy()
+        proxy_config = get_random_proxy() if use_proxy else None
 
         async with semaphore:
             if use_area_query:
@@ -838,7 +838,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
             scrape_target_async(
                 session, semaphore, target, district, category, limit, pages,
                 use_area_query, dry_run, existing_phones, existing_names_districts,
-                checkpoint, checkpoint_path, flag_path
+                checkpoint, checkpoint_path, flag_path, use_proxy
             )
             for target in targets
         ]
@@ -912,10 +912,8 @@ def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 1
     """
     from app.scraper.logger import log
 
-    if use_proxy:
-        # Run async scraper mode in cloud (use_proxy = True)
-        return asyncio.run(scrape_jwt_city_async(district, category, pages, limit, dry_run, subcategories, use_proxy))
-
+    # Run async scraper mode for both local and cloud
+    return asyncio.run(scrape_jwt_city_async(district, category, pages, limit, dry_run, subcategories, use_proxy))
     if subcategories:
         from app.scraper.constants import get_subcategories_for_main
         subcats = get_subcategories_for_main(category)
