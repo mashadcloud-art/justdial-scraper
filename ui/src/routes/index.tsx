@@ -83,6 +83,7 @@ type Business = {
   images: { path: string; category: string }[];
   menuItems: MenuItem[];
   amenities: { category: string; value: string }[];
+  professionals?: { name: string; achievement: string; tags: string; image_url?: string }[];
 };
 
 type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | { type: "detail"; business: Business };
@@ -925,6 +926,12 @@ function Dashboard() {
           amenities: (r.amenities || []).map((a: any) => ({
             category: a.category || "General",
             value: a.value || ""
+          })),
+          professionals: (r.professionals || []).map((p: any) => ({
+            name: p.name,
+            achievement: p.achievement,
+            tags: p.tags,
+            image_url: p.image_url
           })),
         }));
         setRows(mapped);
@@ -4152,6 +4159,32 @@ function DetailView({ business: b, onClose, onViewImages }: { business: Business
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {/* Featured Doctors / Staff */}
+      {b.professionals && b.professionals.length > 0 && (
+        <section className="rounded-2xl ring-1 ring-border bg-card overflow-hidden shadow-elegant">
+          <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+            <Activity className="size-4 text-brand" />
+            <h3 className="text-sm font-semibold">Featured Doctors / Staff</h3>
+            <span className="text-xs text-muted-foreground ml-auto">{b.professionals.length} registered</span>
+          </div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {b.professionals.map((doc, idx) => (
+              <div key={idx} className="p-4 rounded-xl ring-1 ring-border bg-muted/10 flex flex-col gap-1.5 hover:bg-muted/20 transition-colors">
+                <h4 className="text-xs font-bold text-foreground">{doc.name}</h4>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="px-2 py-0.5 bg-brand/10 text-brand text-[9px] font-bold rounded">
+                    {doc.tags}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    • {doc.achievement}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

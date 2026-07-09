@@ -554,7 +554,8 @@ def get_listings(
     query = query.options(
         selectinload(models.Listing.images),
         selectinload(models.Listing.menu_items),
-        selectinload(models.Listing.amenities)
+        selectinload(models.Listing.amenities),
+        selectinload(models.Listing.professionals)
     )
 
     if sort == "newest_images":
@@ -572,6 +573,7 @@ def get_listings(
         menu_list = [{"name": m.name, "price": m.price, "is_veg": m.is_veg} for m in r.menu_items]
         amenities_list = [{"category": a.category, "value": a.value} for a in r.amenities]
         images_list = [{"path": img.image_path, "category": img.category or "general"} for img in valid_images]
+        professionals_list = [{"name": p.name, "achievement": p.achievement, "tags": p.tags, "image_url": p.image_url} for p in r.professionals]
         
         result.append({
             "id": getattr(r, "id", None), "name": getattr(r, "name", ""), "phone": getattr(r, "phone", ""), "whatsapp": getattr(r, "whatsapp", ""), "address": getattr(r, "address", ""),
@@ -579,7 +581,8 @@ def get_listings(
             "normalized_category": getattr(r, "normalized_category", ""), "opening_hours": getattr(r, "opening_hours", ""),
             "district": getattr(r, "district", ""), "state": getattr(r, "state", ""), "place": getattr(r, "place", ""),
             "latitude": getattr(r, "latitude", ""), "longitude": getattr(r, "longitude", ""),
-            "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list
+            "image_path": primary_img, "menu_items": menu_list, "amenities": amenities_list, "images": images_list,
+            "professionals": professionals_list
         })
         
     # Append professionals to the results list

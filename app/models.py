@@ -28,6 +28,7 @@ class Listing(Base):
     images = relationship("ListingImage", back_populates="listing", cascade="all, delete-orphan")
     menu_items = relationship("MenuItem", back_populates="listing", cascade="all, delete-orphan")
     amenities = relationship("Amenity", back_populates="listing", cascade="all, delete-orphan")
+    professionals = relationship("Professional", back_populates="listing", cascade="all, delete-orphan")
 
 class ListingImage(Base):
     __tablename__ = "listing_images"
@@ -253,4 +254,6 @@ class Professional(Base):
     tags = Column(String(500))
     listing_id = Column(Integer, ForeignKey("listings.id", ondelete="CASCADE"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    listing = relationship("Listing", back_populates="professionals")
