@@ -655,9 +655,14 @@ async def fetch_extended_images_async(session, doc_id: str, city: str, proxy_con
     return {}
 
 
-async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path, use_proxy: bool = False):
+async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path, use_proxy: bool = False, seen_ids=None, stats=None):
     """Scan a target area/pincode asynchronously."""
     from app.scraper.logger import log
+
+    if seen_ids is None:
+        seen_ids = set()
+    if stats is None:
+        stats = {"unique": 0, "duplicates": 0}
 
     def target_checkpoint_key(d, c, t):
         return f"{d.lower()}|{c.lower()}|target|{t.lower()}"
@@ -703,20 +708,27 @@ async def scrape_target_async(session, semaphore, target, district, category, li
             if not listing or not listing["name"]:
                 continue
 
+            doc_id = listing.get("doc_id")
             c_phone = listing["phone"].replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("+", "")
             if c_phone.startswith("91") and len(c_phone) == 12:
                 c_phone = c_phone[2:]
 
             name_key = (listing["name"].lower().strip(), district.lower().strip())
 
-            is_dup = (c_phone and c_phone in existing_phones) or (name_key in existing_names_districts)
+            is_dup = (doc_id and doc_id in seen_ids) or (c_phone and c_phone in existing_phones) or (name_key in existing_names_districts)
             if is_dup:
                 page_duplicates += 1
+                stats["duplicates"] += 1
+                if stats["duplicates"] % 50 == 0:
+                    log(f"  [DEDUP] Skipped {stats['duplicates']} duplicates so far...")
                 continue
 
+            if doc_id:
+                seen_ids.add(doc_id)
             if c_phone:
                 existing_phones.add(c_phone)
             existing_names_districts.add(name_key)
+            stats["unique"] += 1
 
             parsed_listings.append((listing, name_key, c_phone))
 
@@ -830,23 +842,28 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     except Exception:
         checkpoint = {}
 
+    seen_ids = set()
+    stats = {"unique": 0, "duplicates": 0}
+
     semaphore = asyncio.Semaphore(5)
-    
+
     connector = aiohttp.TCPConnector(limit=30, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [
             scrape_target_async(
                 session, semaphore, target, district, category, limit, pages,
                 use_area_query, dry_run, existing_phones, existing_names_districts,
-                checkpoint, checkpoint_path, flag_path, use_proxy
+                checkpoint, checkpoint_path, flag_path, use_proxy,
+                seen_ids=seen_ids, stats=stats
             )
             for target in targets
         ]
-        
+
         results = await asyncio.gather(*tasks)
         total_inserted = sum(results)
 
     log(f"\n[COMPLETE] Async Scrape Completed! Total new listings inserted: {total_inserted}")
+    log(f"[DEDUP SUMMARY] Found {stats['unique']} unique, skipped {stats['duplicates']} duplicates")
     return total_inserted, 0
 
 
@@ -904,7 +921,7 @@ async def scrape_jwt_city_async(district: str, category: str, pages: int = 3, li
     return await scrape_jwt_city_async_core(district=district, category=category, pages=pages, limit=limit, dry_run=dry_run, use_proxy=use_proxy)
 
 
-def scrape_jwt_city(district: str, category: str, pages: int = 3, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = False):
+def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = False):
     """
     Scrape JustDial using direct JWT requests for all pincodes in the district.
     Uses cursor-based pagination (nextdocid) to navigate through all result pages.

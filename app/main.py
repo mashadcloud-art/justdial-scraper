@@ -11,9 +11,19 @@ from app.database import engine, Base
 from app.api import sync, categories, pincodes  # 🟢 ADDED CATEGORIES AND PINCODES HERE
 from app.api import gmaps as gmaps_api  # 🟢 Google Maps scraper
 from app.api import simple_scrape as simple_scrape_api  # 🟢 Simple one-shot scraper
+from app.api import setup as setup_api  # 🟢 First-time setup wizard
 
 
-Base.metadata.create_all(bind=engine)
+# Create tables asynchronously in a background thread to prevent blocking server startup
+import threading
+def init_db():
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("[DB] Database tables verified.")
+    except Exception as e:
+        print(f"[DB] Database tables verification deferred: {e}")
+
+threading.Thread(target=init_db, daemon=True).start()
 
 app = FastAPI(title="JustDial Desktop Scraper API")
 
@@ -31,47 +41,8 @@ _DEFAULT_SCRAPE_CONFIG = {
 
 @app.on_event("startup")
 async def auto_start_jd_scraper():
-    """Automatically start the JustDial scraper on server boot if enabled."""
-    config = _DEFAULT_SCRAPE_CONFIG.copy()
-    if os.path.exists(_AUTO_SCRAPE_CONFIG):
-        try:
-            with open(_AUTO_SCRAPE_CONFIG) as f:
-                config.update(_json.load(f))
-        except Exception:
-            pass
-
-    if not config.get("enabled", True):
-        print("[AutoScrape] Disabled via config. Skipping auto-start.")
-        return
-
-    district = config["district"]
-    category = config["category"]
-    pages = config.get("pages", 10)
-    log_file = f"jd_{district.lower()}_{category.lower().replace(' ', '_')}.log"
-
-    subcategories = config.get("subcategories", False)
-
-    print(f"[AutoScrape] [STARTING] Auto-starting JD scraper: {district} / {category} (pages={pages}, subcategories={subcategories}) -> {log_file}")
-    try:
-        python_exe = sys.executable
-        cmd = [
-            python_exe, "-u", "jd_api_scraper.py",
-            "--district", district,
-            "--category", category,
-            "--pages", str(pages)
-        ]
-        if subcategories:
-            cmd.append("--subcategories")
-            
-        with open(log_file, "a", encoding="utf-8") as lf:
-            subprocess.Popen(
-                cmd,
-                stdout=lf,
-                stderr=subprocess.STDOUT
-            )
-        print(f"[AutoScrape] [OK] Scraper launched. Logs -> {log_file}")
-    except Exception as e:
-        print(f"[AutoScrape] [ERROR] Failed to auto-start scraper: {e}")
+    """Auto-scraper disabled in production build."""
+    pass
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -91,11 +62,12 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
-app.include_router(sync.router, prefix="/api/v1")
+app.include_router(sync.router, prefix="/api/v1")  # includes /deep-scrape and /deep-scrape/status/{job_id}
 app.include_router(categories.router)
 app.include_router(pincodes.router)
-app.include_router(gmaps_api.router)  # Google Maps scraper
-app.include_router(simple_scrape_api.router)  # Simple one-shot scraper
+app.include_router(gmaps_api.router)
+app.include_router(simple_scrape_api.router)
+app.include_router(setup_api.router)  # Setup wizard
 
 
 if os.path.exists("data/uploaded_images"):
@@ -151,6 +123,10 @@ from sqlalchemy import func
 import subprocess
 import sys
 import psutil
+try:
+    import psutil._psutil_windows
+except ImportError:
+    pass
 from fastapi import HTTPException
 
 @app.get("/api/v1/daemon/status")
@@ -234,10 +210,44 @@ def stop_daemon():
             pass
     return {"status": "stopped" if stopped else "not_running"}
 
-@app.get("/")
-def root():
-    return {"status": "running", "message": "JustDial API is ready!"}
+@app.post("/api/v1/system/update")
+def system_update():
+    try:
+        import subprocess
+        result = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+        return {
+            "status": "success",
+            "message": "Git pull completed successfully.",
+            "output": result.stdout
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update: {str(e)}")
+
+# --- SERVE FRONTEND STATIC FILES ---
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+if os.path.exists("ui/dist/client"):
+    # Mount the static assets folder (CSS, JS)
+    app.mount("/assets", StaticFiles(directory="ui/dist/client/assets"), name="assets")
+    
+    # Catch-all route to serve the React SPA index.html
+    @app.get("/{rest_of_path:path}")
+    def serve_frontend(rest_of_path: str):
+        # Allow API and media directories to bypass
+        if rest_of_path.startswith("api/") or rest_of_path.startswith("images/") or rest_of_path.startswith("scraped_images/") or rest_of_path.startswith("uploaded_images/"):
+            raise HTTPException(status_code=404, detail="Not found")
+            
+        index_path = "ui/dist/client/index.html"
+        if os.path.exists(index_path):
+            with open(index_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        return HTMLResponse(content="Frontend build index.html not found.", status_code=404)
+else:
+    @app.get("/")
+    def root():
+        return {"status": "running", "message": "JustDial API is ready!"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.API_HOST, port=settings.API_PORT, reload=True)
+    uvicorn.run("app.main:app", host=settings.API_HOST, port=settings.API_PORT, reload=False)
