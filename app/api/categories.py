@@ -709,3 +709,94 @@ def deselect_category(selection_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": "success", "message": "Category deselected"}
+
+
+# ── Full subcategory map (mirrors ui/src/lib/mappedCategories.ts) ─────────────
+UNIVERSAL_SUBCATEGORIES = {
+    "beauty & spas": ["Ayurvedic Body Massage Centres", "Body Massage Centres", "Beauty Parlours", "Beauty Salons", "Beauty Spas", "Bridal Makeup Artists", "Dermatologists", "Freelance Makeup Artists", "Hair Stylists", "Hair Transplant Doctors", "Makeup Artists", "Salons", "Skin Care Clinics", "Unisex Beauty Parlours", "Unisex Salons"],
+    "hotels & restaurants": ["Bakeries", "Banquet Halls", "Burger Joints", "Caterers", "Diet Food Restaurants", "Fried Chicken Restaurants", "Grill Restaurants", "Guest Houses", "Halal Restaurants", "Home Delivery Restaurants", "Home Stays", "Hostels", "Hotels", "Indian Restaurants", "Kebab Restaurants", "Lodges", "Mandi Restaurants", "Paying Guest Accommodations", "Resorts", "Restaurants", "Sandwich Stalls", "Sweet Shops", "Yemeni Restaurants"],
+    "health & medical": ["Ayurvedic Clinics", "Ayurvedic Doctors", "Ayurvedic Hospitals", "Ayurvedic Medicine Shops", "Cardiac Hospitals", "Children Hospitals", "Clinics", "Dental Clinics", "Dentists", "Diagnostic Centres", "Eye Hospitals", "General Physician Doctors", "Gynaecologist & Obstetrician Doctors", "Homeopathic Clinics", "Homeopathic Doctors", "Homeopathic Hospitals", "Hospitals", "Maternity Hospitals", "Neurologists", "Nursing Homes", "Ophthalmologists", "Orthopaedic Doctors", "Paediatricians", "Pathology Labs", "Physiotherapy Centres", "Private Hospitals", "Public Hospitals"],
+    "doctors": ["General Physician Doctors", "Cardiologist Doctors", "Dermatologist Doctors", "Gynaecologist Doctors", "Orthopaedic Doctors", "Paediatricians", "Neurologists", "Ophthalmologists", "Dentists", "ENT Doctors", "Urologist Doctors", "Diabetologist Doctors", "Psychiatrists", "Oncologists", "Radiologists", "Gastroenterologist Doctors", "Hair Loss Doctors", "Sexologist Doctors"],
+    "education": ["BBA Colleges", "Boarding Schools", "Book Shops", "CA Institutes", "CBSE Schools", "Colleges", "Computer Training Institutes", "Dance Classes", "Engineering Colleges", "Fashion Designing Institutes", "Home Tutors", "IELTS Tutorials", "ITI Institutes", "Language Classes", "Overseas Education Consultants", "Polytechnic Institutes", "Schools", "Tutorials", "Vocational Colleges"],
+    "automobiles": ["Bike On Rent", "Car Dealers", "Car Rental", "Car Repair & Services", "Car Tyre Dealers", "Car Washing Services", "Electric Vehicle Dealers", "Luxury Car Rental", "Motorcycle Dealers", "Motorcycle Repair & Services", "RTO Consultants", "Scooter Dealers", "Second Hand Car Dealers", "Second Hand Motorcycle Dealers", "Trucks On Rent", "Vehicle Tracking System Dealers"],
+    "shopping": ["Boutiques", "Departmental Stores", "Electronics & Gadgets", "Fashion Designers", "General Stores", "Gift Shops", "Grocery Stores", "Jewellery Showrooms", "Mobile Phone Dealers", "Shopping Malls", "Supermarkets", "Toy Shops"],
+    "home services": ["AC Repair & Services", "CCTV Dealers", "Carpenters", "Dry Cleaners", "Electrical Contractors", "Electricians", "Laundry Services", "Packers And Movers", "Plumbers", "Plumbing Contractors", "Refrigerator Repair & Services", "Solar Panel Dealers", "Waterproofing Contractors"],
+    "real estate": ["Architects", "Builders", "Builders & Developers", "Civil Contractors", "Construction Contractors", "Interior Architects", "Interior Designers", "Residential Builders"],
+    "travel & tourism": ["Bus Services", "Domestic Tour Operators", "International Tour Packages", "Taxi Services", "Tempo Travellers On Rent", "Tour Operators", "Tour Packages", "Travel Agents", "Transporters", "Visa Assistance"],
+    "events & weddings": ["Balloon Decorators", "Birthday Party Decorators", "DJ System On Rent", "Decorators", "Event Management Companies", "Event Organisers", "Flower Decorators", "Photographers", "Sound Systems On Hire", "Wedding Decorators", "Wedding Photographers"],
+    "computer & it": ["Computer Dealers", "Computer Repair & Services", "Computer Software Developers", "IT Companies", "Laptop Dealers", "Laptop Repair & Services", "Mobile Phone Repair & Services", "Website Designers"],
+    "home decor & furnishing": ["Bed Dealers", "Carpet Dealers", "Curtain Dealers", "Furniture Dealers", "Furniture Manufacturers", "Interior Designers", "Mattress Dealers", "Modular Kitchen Dealers", "Sofa Dealers", "Wardrobe Manufacturers"],
+    "entertainment & fitness": ["Fitness Centres", "Gaming Zones", "Gyms", "Swimming Pools", "Yoga Centres"],
+    "electronics & electrical": ["AC Dealers", "Cement Dealers", "Electrical Shops", "Generator Dealers", "Hardware Shops", "LED Light Dealers", "Paint Dealers", "Sanitaryware Dealers", "Steel Dealers", "Tile Dealers"],
+    "lawyers": ["Civil Lawyers", "Criminal Lawyers", "Family Lawyers", "Property Lawyers", "Corporate Lawyers", "Labour Lawyers", "Divorce Lawyers", "Immigration Lawyers", "Tax Lawyers", "High Court Lawyers"],
+    "architects": ["Residential Architects", "Commercial Architects", "Interior Architects", "Landscape Architects", "Industrial Architects"],
+    "ca": ["Chartered Accountants", "Tax Consultants", "Auditors", "GST Consultants", "Income Tax Consultants", "Company Secretaries", "Financial Advisors"],
+    "schools": ["CBSE Schools", "ICSE Schools", "State Board Schools", "International Schools", "Convent Schools", "English Medium Schools", "Play Schools", "Boarding Schools"],
+    "hospitals": ["Multi-Specialty Hospitals", "Government Hospitals", "Private Hospitals", "Maternity Hospitals", "Children Hospitals", "Eye Hospitals", "Dental Hospitals", "Ayurvedic Hospitals", "Homeopathic Hospitals", "Nursing Homes", "Clinics"],
+    "pharmacies": ["Medical Shops", "Chemists", "Drug Stores", "Ayurvedic Medicine Shops", "Homeopathic Medicine Shops"],
+    "gyms": ["Fitness Centres", "Gyms", "Yoga Centres", "Aerobics Classes", "Zumba Classes"],
+    "salons": ["Beauty Parlours", "Hair Salons", "Unisex Salons", "Bridal Makeup Artists", "Men Salons", "Nail Art Studios", "Spa Centres", "Skin Care Clinics"],
+    "engineers": ["Civil Engineers", "Electrical Engineers", "Mechanical Engineers", "Structural Engineers"],
+    "contractors": ["Civil Contractors", "Electrical Contractors", "Plumbing Contractors", "Painting Contractors", "Carpentry Contractors", "Flooring Contractors", "Roofing Contractors", "Waterproofing Contractors", "Fabrication Contractors", "False Ceiling Contractors", "Interior Decorators", "Borewell Contractors", "Building Contractors", "Construction Contractors", "Welding Contractors", "Tiling Contractors"],
+    "restaurants": ["Fast Food", "Bakeries", "Cafes", "Burger Joints", "Pizza", "Chinese Restaurants", "Indian Restaurants", "Halal Restaurants", "Home Delivery Restaurants", "Fried Chicken Restaurants", "Grill Restaurants", "Sea Food Restaurants", "Yemeni Restaurants", "Mandi Restaurants"],
+    "banks": ["Banks", "ATMs", "Money Transfer Agencies", "Finance Consultants", "Loan Agents", "Insurance Agents"],
+    "petrol pumps": ["Petrol Pumps", "CNG Stations", "EV Charging Stations"],
+    "courier": ["Courier Services", "Packers And Movers", "Logistics Services", "Cargo Services"],
+    "gynaecologist": ["Gynaecologist & Obstetrician Doctors", "Maternity Hospitals", "Fertility Clinics", "Nursing Homes"],
+    "dentist": ["Dentists", "Dental Clinics", "Dental Hospitals", "Orthodontists", "Dental Colleges"],
+    "eye": ["Ophthalmologists", "Eye Hospitals", "Eye Clinics", "Opticians", "Contact Lens Dealers"],
+}
+
+
+class FetchSubcategoriesRequest(BaseModel):
+    category: str
+    district: str = "Ernakulam"
+
+
+@router.post("/fetch-subcategories")
+def fetch_subcategories_for_category(req: FetchSubcategoriesRequest, db: Session = Depends(get_db)):
+    """
+    Fetch subcategories for any category name.
+    Priority:
+    1. Our database
+    2. Built-in universal map (no live scraping)
+    3. Fallback: category name itself
+    """
+    cat = req.category.strip()
+    cat_lower = cat.lower()
+
+    # 1. Check our DB
+    db_cats = db.query(models.Category).filter(
+        (models.Category.parent_category.ilike(f"%{cat}%")) |
+        (models.Category.name.ilike(f"%{cat}%"))
+    ).filter(models.Category.is_active == True).all()
+
+    if db_cats:
+        subs = list({c.name for c in db_cats})
+        return {"subcategories": subs, "source": "database", "count": len(subs)}
+
+    # 2. Check universal built-in map (no live scraping — instant)
+    best_match = None
+    best_score = 0
+    for key in UNIVERSAL_SUBCATEGORIES:
+        if key == cat_lower:
+            best_match = key
+            break
+        if key in cat_lower or cat_lower in key:
+            score = len(set(key.split()) & set(cat_lower.split()))
+            if score > best_score:
+                best_score = score
+                best_match = key
+
+    if best_match:
+        subs = UNIVERSAL_SUBCATEGORIES[best_match]
+        # Save to DB for future
+        for sub in subs:
+            existing = db.query(models.Category).filter(models.Category.name == sub).first()
+            if not existing:
+                db.add(models.Category(name=sub, parent_category=cat, is_active=True))
+        db.commit()
+        return {"subcategories": subs, "source": "built-in", "count": len(subs)}
+
+    # 3. Fallback — use category itself as single entry
+    return {"subcategories": [cat], "source": "fallback", "count": 1}

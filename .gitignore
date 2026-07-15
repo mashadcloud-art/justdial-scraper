@@ -24,3 +24,12 @@ chrome_drivers/
 scratch/
 captured_json/
 logs/
+*.log
+*.exe
+build/
+dist/
+data/
+chrome_user_data_test/
+*.html
+*.png
+*.xml

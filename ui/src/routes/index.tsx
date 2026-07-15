@@ -21,6 +21,7 @@ import {
   Link2,
   MapPin,
   Maximize2,
+  Loader2,
   MessageCircle,
   Minimize2,
   Moon,
@@ -620,6 +621,14 @@ function Dashboard() {
   const [deepParsingHtml, setDeepParsingHtml] = useState(false);
   const [deepStarting, setDeepStarting] = useState(false);
   const [deepJob, setDeepJob] = useState<DeepScrapeJobStatus | null>(null);
+
+  // ── Manual Category Scrape ─────────────────────────────────────────────────
+  const [manualCatName, setManualCatName] = useState("");
+  const [manualCatDistrict, setManualCatDistrict] = useState("Ernakulam");
+  const [manualCatScope, setManualCatScope] = useState<"district" | "state">("district");
+  const [manualCatSubs, setManualCatSubs] = useState<string[]>([]);
+  const [manualCatFetching, setManualCatFetching] = useState(false);
+  const [manualCatStarting, setManualCatStarting] = useState(false);
   const [deepCategoryMap, setDeepCategoryMap] = useState<Record<string, CategoryMapEntry[]>>({});
   const [deepRecentJobs, setDeepRecentJobs] = useState<DeepScrapeJobSummary[]>([]);
   const deepPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -896,6 +905,85 @@ function Dashboard() {
     } finally {
       setDeepParsingHtml(false);
     }
+  }
+
+  async function fetchManualCatSubs(targetCat?: string) {
+    const cat = (targetCat || manualCatName).trim() || "Doctors";
+    if (!manualCatName.trim()) setManualCatName("Doctors");
+    setManualCatFetching(true);
+    setManualCatSubs([]);
+    try {
+      const fetchRes = await fetch(`${API}/categories/fetch-subcategories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: cat, district: manualCatDistrict }),
+      });
+      if (fetchRes.ok) {
+        const fetchData = await fetchRes.json();
+        const subs: string[] = fetchData.subcategories || [];
+        setManualCatSubs(subs);
+        toast.success(`Found ${subs.length} subcategories (${fetchData.source})`);
+        return subs;
+      } else {
+        const fallback = [cat];
+        setManualCatSubs(fallback);
+        toast.info("No subcategories found — using category name directly");
+        return fallback;
+      }
+    } catch {
+      const fallback = [cat];
+      setManualCatSubs(fallback);
+      toast.info("Using category name as fallback");
+      return fallback;
+    } finally {
+      setManualCatFetching(false);
+    }
+  }
+
+  async function startManualCatScrape() {
+    const cat = manualCatName.trim();
+    if (!cat) { toast.error("Enter a category name first"); return; }
+    
+    let subs = manualCatSubs;
+    if (subs.length === 0) {
+      toast.info("Fetching subcategories first...");
+      const fetched = await fetchManualCatSubs(cat);
+      if (fetched) {
+        subs = fetched;
+      }
+    }
+    
+    if (!subs || subs.length === 0) {
+      toast.error("Failed to determine subcategories to scrape.");
+      return;
+    }
+
+    setManualCatStarting(true);
+    try {
+      // Build a JustDial URL for the category + district and use deep scrape
+      const districtSlug = manualCatDistrict.replace(/\s+/g, "-");
+      const catSlug = cat.replace(/\s+/g, "-");
+      const url = `https://www.justdial.com/${districtSlug}/${catSlug}`;
+      const res = await fetch(`${API}/deep-scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, mode: manualCatScope, manual_subcategories: subs }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.detail || "Failed to start"); return; }
+      toast.success(`Deep scrape started for "${cat}" with ${subs.length} subcategories`);
+      localStorage.setItem(DEEP_SCRAPE_JOB_ID_KEY, data.job_id);
+      const now = new Date().toISOString();
+      setDeepJob({
+        job_id: data.job_id, url, mode: manualCatScope, status: "pending",
+        total_subcategories: subs.length, completed_subcategories: 0,
+        total_found: 0, duplicates_skipped: 0, saved_to_db: 0,
+        current_subcategory: null, created_at: now, updated_at: now, log_tail: [],
+      });
+      pollDeepScrapeStatus(data.job_id);
+      fetchRecentDeepScrapeJobs();
+    } catch { toast.error("Network error"); }
+    finally { setManualCatStarting(false); }
   }
 
   async function startDeepScrape() {
@@ -3536,6 +3624,116 @@ function Dashboard() {
             {activeTab === "deep_scrape" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-5">
+
+                  {/* ── MANUAL CATEGORY CARD ── */}
+                  <section className="p-6 rounded-2xl ring-1 ring-brand/30 bg-card shadow-elegant space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="size-4 text-brand" />
+                      <h3 className="text-base font-semibold">Manual Category Scrape</h3>
+                      <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">New</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Type any category (e.g. Doctors, Lawyers, Architects). Subcategories are loaded from our database — if none found, fetched from the internet and saved automatically.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">Category Name</label>
+                        <input
+                          type="text"
+                          value={manualCatName}
+                          onChange={e => { setManualCatName(e.target.value); setManualCatSubs([]); }}
+                          placeholder="e.g. Doctors, Lawyers, Architects"
+                          list="working-categories"
+                          className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                        />
+                        <datalist id="working-categories">
+                          <option value="Doctors" />
+                          <option value="Lawyers" />
+                          <option value="Architects" />
+                          <option value="CA" />
+                          <option value="Hospitals" />
+                          <option value="Pharmacies" />
+                          <option value="Restaurants" />
+                          <option value="Hotels & Restaurants" />
+                          <option value="Beauty & Spas" />
+                          <option value="Salons" />
+                          <option value="Gyms" />
+                          <option value="Schools" />
+                          <option value="Education" />
+                          <option value="Automobiles" />
+                          <option value="Shopping" />
+                          <option value="Home Services" />
+                          <option value="Real Estate" />
+                          <option value="Travel & Tourism" />
+                          <option value="Events & Weddings" />
+                          <option value="Computer & IT" />
+                          <option value="Home Decor & Furnishing" />
+                          <option value="Entertainment & Fitness" />
+                          <option value="Electronics & Electrical" />
+                          <option value="Engineers" />
+                          <option value="Contractors" />
+                          <option value="Banks" />
+                          <option value="Petrol Pumps" />
+                          <option value="Courier" />
+                          <option value="Gynaecologist" />
+                          <option value="Dentist" />
+                          <option value="Eye" />
+                        </datalist>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">District</label>
+                        <select
+                          value={manualCatDistrict}
+                          onChange={e => setManualCatDistrict(e.target.value)}
+                          className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+                        >
+                          {(CITIES["Kerala"] || []).map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">Scope</label>
+                      <div className="flex gap-2">
+                        {(["district", "state"] as const).map(s => (
+                          <button key={s} type="button" onClick={() => setManualCatScope(s)}
+                            className={cn("flex-1 h-9 rounded-lg text-xs font-medium ring-1 transition-colors",
+                              manualCatScope === s ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent")}>
+                            {s === "district" ? "This District Only" : "All Kerala Districts"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Subcategories preview */}
+                    {manualCatSubs.length > 0 && (
+                      <div className="bg-background rounded-lg ring-1 ring-border p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold">{manualCatSubs.length} subcategories ready</span>
+                          <button onClick={() => setManualCatSubs([])} className="text-[10px] text-muted-foreground hover:text-destructive">Clear</button>
+                        </div>
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                          {manualCatSubs.map((s, i) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button onClick={fetchManualCatSubs} disabled={manualCatFetching}
+                        variant="outline" className="flex-1 h-10 text-xs">
+                        {manualCatFetching ? <><Loader2 className="size-3.5 animate-spin mr-1.5" />Fetching...</> : "🔍 Fetch Subcategories"}
+                      </Button>
+                      <Button onClick={startManualCatScrape}
+                        disabled={manualCatStarting || (!!deepJob && ["pending","discovering","scraping"].includes(deepJob.status))}
+                        className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
+                        {manualCatStarting ? "Starting..." : "▶ Start Scrape"}
+                      </Button>
+                    </div>
+                  </section>
+
                   <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
                     <div className="flex items-center gap-2">
                       <Layers className="size-4 text-brand" />

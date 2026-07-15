@@ -14,6 +14,8 @@ export default defineConfig({
   },
   vite: {
     server: {
+      port: 8080,
+      strictPort: true,
       allowedHosts: ["scrapper.mashad.shop"],
       proxy: {
         "/api": {

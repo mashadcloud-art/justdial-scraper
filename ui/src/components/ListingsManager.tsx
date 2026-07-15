@@ -24,9 +24,9 @@ export default function ListingsManager({
   initialCategory?: string;
   initialTodayOnly?: boolean;
 }) {
-  const [state, setState] = useState(initialState || states[0] || "");
+  const [state, setState] = useState(initialState || "All");
   const [district, setDistrict] = useState(initialDistrict || "All");
-  const [mainCat, setMainCat] = useState("Restaurants");
+  const [mainCat, setMainCat] = useState("All");
   const [subCat, setSubCat] = useState(initialCategory || "All");
   const [source, setSource] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -260,6 +260,7 @@ export default function ListingsManager({
         <div className="space-y-1.5 flex-1 min-w-[150px]">
           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">State</label>
           <select value={state} onChange={(e) => { setState(e.target.value); setDistrict("All"); setPage(1); }} className="w-full h-9 rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none">
+            <option value="All">All States</option>
             {states.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>

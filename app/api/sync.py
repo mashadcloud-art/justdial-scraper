@@ -543,7 +543,7 @@ def get_listings(
     
     if today_only:
         import datetime
-        today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+        today_start = datetime.datetime.combine(datetime.datetime.utcnow().date(), datetime.time.min)
         query = query.filter(models.Listing.scraped_at >= today_start)
     
     if state:
@@ -649,7 +649,7 @@ def get_stats(db: Session = Depends(get_db), current_user: Optional[dict] = Depe
         total_menu_items = db.query(models.MenuItem).count()
     
     # Calculate scraped today count
-    today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    today_start = datetime.datetime.combine(datetime.datetime.utcnow().date(), datetime.time.min)
     scraped_today_query = db.query(models.Listing).filter(models.Listing.scraped_at >= today_start)
     if user_id:
         scraped_today_query = scraped_today_query.filter(models.Listing.user_id == user_id)
@@ -677,7 +677,7 @@ def get_stats(db: Session = Depends(get_db), current_user: Optional[dict] = Depe
 def get_scraped_today_breakdown(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
     from sqlalchemy import func
     import datetime
-    today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    today_start = datetime.datetime.combine(datetime.datetime.utcnow().date(), datetime.time.min)
     user_id = current_user["user_id"] if current_user else None
     
     city_counts_query = db.query(
@@ -2152,13 +2152,16 @@ from pydantic import BaseModel as _BaseModel
 class DeepScrapeRequest(_BaseModel):
     url: str
     mode: str  # "district" or "state"
+    manual_subcategories: list = []  # optional override list
 
 @router.post("/deep-scrape")
 def start_deep_scrape(request: DeepScrapeRequest, db: Session = Depends(get_db)):
     if request.mode not in ("district", "state"):
         raise HTTPException(status_code=400, detail="mode must be 'district' or 'state'")
-    if not request.url or "justdial.com" not in request.url:
-        raise HTTPException(status_code=400, detail="A valid JustDial category URL is required")
+
+    # For manual category scrapes, URL doesn't need to be a real JustDial URL
+    if not request.url:
+        raise HTTPException(status_code=400, detail="A category URL is required")
 
     active_job = db.query(models.DeepScrapeJob).filter(
         models.DeepScrapeJob.status.in_(["pending", "discovering", "scraping"])
@@ -2178,7 +2181,12 @@ def start_deep_scrape(request: DeepScrapeRequest, db: Session = Depends(get_db))
 
     from app.scraper.deep_category_scraper import run_deep_scrape_job
     import threading
-    threading.Thread(target=run_deep_scrape_job, args=(job_id, request.url, request.mode), daemon=True).start()
+    threading.Thread(
+        target=run_deep_scrape_job,
+        args=(job_id, request.url, request.mode),
+        kwargs={"manual_subcategories": request.manual_subcategories},
+        daemon=True
+    ).start()
 
     return {"job_id": job_id, "status": "started"}
 

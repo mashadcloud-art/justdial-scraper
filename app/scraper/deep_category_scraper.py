@@ -219,7 +219,7 @@ def scrape_places_for_subcategory(job_id: str, db, district: str, subcategory_na
     return total_inserted, total_updated
 
 
-def run_deep_scrape_job(job_id: str, url: str, mode: str):
+def run_deep_scrape_job(job_id: str, url: str, mode: str, manual_subcategories: list = None):
     """
     Main orchestration entry point. Intended to run in a background thread.
     Phase 1: resolve subcategories once from jd_category_map, save to jd_categories for every target
@@ -250,6 +250,12 @@ def run_deep_scrape_job(job_id: str, url: str, mode: str):
 
         ensure_seed_category_map(db)
         subs = get_subcategories_from_map(db, category_name, city=origin_city)
+
+        # Use manual subcategories if provided and nothing found in map
+        if not subs and manual_subcategories:
+            _log(db, job_id, f"Using {len(manual_subcategories)} manually provided subcategories.")
+            subs = [{"name": s, "tags": None} for s in manual_subcategories]
+
         if not subs:
             _log(db, job_id, "No subcategories found in jd_category_map for this category.")
             _update_job(db, job_id, status="failed", current_subcategory=(
