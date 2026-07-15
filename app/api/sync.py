@@ -2182,12 +2182,8 @@ def start_deep_scrape(request: DeepScrapeRequest, db: Session = Depends(get_db))
 
     return {"job_id": job_id, "status": "started"}
 
-@router.get("/deep-scrape/status/{job_id}")
-def get_deep_scrape_status(job_id: str, db: Session = Depends(get_db)):
-    job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {
+def _serialize_deep_scrape_job(job, include_log: bool = False) -> dict:
+    data = {
         "job_id": job.job_id,
         "url": job.url,
         "mode": job.mode,
@@ -2201,3 +2197,70 @@ def get_deep_scrape_status(job_id: str, db: Session = Depends(get_db)):
         "created_at": job.created_at,
         "updated_at": job.updated_at,
     }
+    if include_log:
+        try:
+            data["log_tail"] = json.loads(job.log_tail) if job.log_tail else []
+        except Exception:
+            data["log_tail"] = []
+    return data
+
+@router.get("/deep-scrape/status/{job_id}")
+def get_deep_scrape_status(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _serialize_deep_scrape_job(job, include_log=True)
+
+@router.get("/deep-scrape/status")
+def get_latest_deep_scrape_status(db: Session = Depends(get_db)):
+    """Most recent deep-scrape job (running or finished) — lets the frontend reconnect after a refresh."""
+    job = db.query(models.DeepScrapeJob).order_by(models.DeepScrapeJob.created_at.desc()).first()
+    if not job:
+        return {"job": None}
+    return {"job": _serialize_deep_scrape_job(job, include_log=True)}
+
+@router.get("/deep-scrape/recent")
+def get_recent_deep_scrape_jobs(limit: int = 5, db: Session = Depends(get_db)):
+    """Last N deep-scrape jobs (any status), newest first, for the Recent Jobs list."""
+    jobs = db.query(models.DeepScrapeJob).order_by(models.DeepScrapeJob.created_at.desc()).limit(limit).all()
+    return {"jobs": [_serialize_deep_scrape_job(j) for j in jobs]}
+
+
+class ParseHtmlToCategoryMapRequest(_BaseModel):
+    url: str
+    html_content: str
+
+@router.get("/category-map")
+def get_category_map(db: Session = Depends(get_db)):
+    """Return the current jd_category_map contents, grouped by main category (seeding defaults first)."""
+    from app.scraper.deep_category_scraper import ensure_seed_category_map
+    ensure_seed_category_map(db)
+
+    rows = db.query(models.JDCategoryMap).order_by(
+        models.JDCategoryMap.main_category, models.JDCategoryMap.subcategory
+    ).all()
+    grouped: dict = {}
+    for r in rows:
+        grouped.setdefault(r.main_category, []).append({
+            "subcategory": r.subcategory,
+            "tags": r.tags,
+            "city": r.city,
+        })
+    return {"categories": grouped}
+
+@router.post("/category-map/parse-html")
+def parse_html_to_category_map(request: ParseHtmlToCategoryMapRequest, db: Session = Depends(get_db)):
+    """Parse a pasted JustDial category page and save its subcategories (+ tags) into jd_category_map."""
+    from app.scraper.deep_category_scraper import parse_category_url, save_html_subcategories_to_map
+
+    if not request.html_content or not request.html_content.strip():
+        raise HTTPException(status_code=400, detail="HTML content is required")
+    try:
+        city, category_name = parse_category_url(request.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    saved = save_html_subcategories_to_map(db, category_name, request.html_content, city=city)
+    if not saved:
+        raise HTTPException(status_code=400, detail="No subcategories found in the pasted HTML")
+    return {"main_category": category_name, "city": city, "saved": saved, "count": len(saved)}

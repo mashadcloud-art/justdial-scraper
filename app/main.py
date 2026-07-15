@@ -23,6 +23,16 @@ def init_db():
     except Exception as e:
         print(f"[DB] Database tables verification deferred: {e}")
 
+    # create_all() only creates missing tables — it won't add new columns to a table that
+    # already existed, so newly-added columns on existing models need an explicit ALTER TABLE.
+    from sqlalchemy import text
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE scrape_jobs ADD COLUMN log_tail TEXT"))
+        print("[DB] Added scrape_jobs.log_tail column.")
+    except Exception:
+        pass  # column already exists (or table not created yet) — safe to ignore
+
 threading.Thread(target=init_db, daemon=True).start()
 
 app = FastAPI(title="JustDial Desktop Scraper API")

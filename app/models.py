@@ -287,5 +287,20 @@ class DeepScrapeJob(Base):
     total_found = Column(Integer, default=0)
     duplicates_skipped = Column(Integer, default=0)
     current_subcategory = Column(String(300), nullable=True)
+    log_tail = Column(Text, nullable=True)  # JSON-encoded list of recent log lines, for the live log panel
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class JDCategoryMap(Base):
+    """Persistent subcategory map for the Deep Category Scraper — seeded with defaults, extendable
+    by pasting a JustDial category page's HTML. city=NULL rows are global defaults applied to every
+    city; city-scoped rows come from HTML pasted for that city's page specifically."""
+    __tablename__ = "jd_category_map"
+
+    id = Column(Integer, primary_key=True, index=True)
+    main_category = Column(String(200), nullable=False, index=True)
+    subcategory = Column(String(200), nullable=False)
+    tags = Column(String(300), nullable=True)
+    city = Column(String(100), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

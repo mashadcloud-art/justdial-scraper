@@ -263,49 +263,6 @@ function Dashboard() {
   const [importHtmlMainCategory, setImportHtmlMainCategory] = useState("");
   const [isImportingHtml, setIsImportingHtml] = useState(false);
 
-  async function submitHtmlImport() {
-    if (!importHtmlContent) return;
-    setIsImportingHtml(true);
-    try {
-      const doc = new DOMParser().parseFromString(importHtmlContent, "text/html");
-      const elements = doc.querySelectorAll("*");
-      const cats = new Set<string>();
-      
-      elements.forEach(el => {
-        const text = el.textContent?.trim();
-        if (text && text.length > 2 && text.length < 100 && !text.includes("{") && !text.includes("}")) {
-          cats.add(text);
-        }
-      });
-      
-      const parent = importHtmlMainCategory.trim() || "Uncategorized";
-      
-      const res = await fetch(`${API}/categories/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          html: importHtmlContent,
-          main_category: parent
-        })
-      });
-      
-      if (res.ok) {
-        toast.success(`Successfully imported categories under ${parent}`);
-        setImportHtmlOpen(false);
-        setImportHtmlContent("");
-        setImportHtmlMainCategory("");
-        fetchDbCategories();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || "Failed to import categories");
-      }
-    } catch (e: any) {
-      toast.error(`Error importing: ${e.message}`);
-    } finally {
-      setIsImportingHtml(false);
-    }
-  }
-
   // Advanced Location States
   const [locationMode, setLocationMode] = useState<"custom"|"pincode"|"famous">("custom");
   const [availablePincodes, setAvailablePincodes] = useState<{pin: string, name: string}[]>([]);
@@ -639,7 +596,7 @@ function Dashboard() {
   const [loadingCoverage, setLoadingCoverage] = useState(false);
 
   // Deep Category Scraper
-  type DeepScrapeJobStatus = {
+  type DeepScrapeJobSummary = {
     job_id: string;
     url: string;
     mode: string;
@@ -650,18 +607,35 @@ function Dashboard() {
     duplicates_skipped: number;
     saved_to_db: number;
     current_subcategory: string | null;
+    created_at: string;
+    updated_at: string;
   };
+  type DeepScrapeJobStatus = DeepScrapeJobSummary & { log_tail: string[] };
+  type CategoryMapEntry = { subcategory: string; tags: string | null; city: string | null };
+  const DEEP_SCRAPE_JOB_ID_KEY = "deepScrapeJobId";
+  const DEEP_SCRAPE_ACTIVE_STATUSES = ["pending", "discovering", "scraping"];
   const [deepUrl, setDeepUrl] = useState("");
   const [deepMode, setDeepMode] = useState<"district" | "state">("district");
+  const [deepHtmlContent, setDeepHtmlContent] = useState("");
+  const [deepParsingHtml, setDeepParsingHtml] = useState(false);
   const [deepStarting, setDeepStarting] = useState(false);
   const [deepJob, setDeepJob] = useState<DeepScrapeJobStatus | null>(null);
+  const [deepCategoryMap, setDeepCategoryMap] = useState<Record<string, CategoryMapEntry[]>>({});
+  const [deepRecentJobs, setDeepRecentJobs] = useState<DeepScrapeJobSummary[]>([]);
   const deepPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deepLogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return () => {
       if (deepPollRef.current) clearInterval(deepPollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (deepLogRef.current) {
+      deepLogRef.current.scrollTop = deepLogRef.current.scrollHeight;
+    }
+  }, [deepJob?.log_tail]);
 
   const [categoryRefreshTick, setCategoryRefreshTick] = useState(0);
 
@@ -728,6 +702,9 @@ function Dashboard() {
     fetchRestaurants();
     fetchAdbDevices();
     fetchDbCategories();
+    fetchCategoryMap();
+    fetchRecentDeepScrapeJobs();
+    reconnectDeepScrape();
 
     // Check if scraper is already running in backend on load
     fetchLastScrapeRun();
@@ -817,6 +794,16 @@ function Dashboard() {
     }
   }
 
+  async function fetchRecentDeepScrapeJobs() {
+    try {
+      const res = await fetch(`${API}/deep-scrape/recent?limit=5`);
+      if (res.ok) {
+        const data = await res.json();
+        setDeepRecentJobs(data.jobs || []);
+      }
+    } catch { /* backend not ready yet */ }
+  }
+
   function pollDeepScrapeStatus(jobId: string) {
     if (deepPollRef.current) clearInterval(deepPollRef.current);
     deepPollRef.current = setInterval(async () => {
@@ -828,6 +815,7 @@ function Dashboard() {
           if (data.status === "completed" || data.status === "failed") {
             if (deepPollRef.current) clearInterval(deepPollRef.current);
             deepPollRef.current = null;
+            fetchRecentDeepScrapeJobs();
             if (data.status === "completed") {
               toast.success(`Deep Scrape complete — ${data.saved_to_db} new listings saved.`);
             } else {
@@ -837,6 +825,77 @@ function Dashboard() {
         }
       } catch { /* transient network error, keep polling */ }
     }, 2500);
+  }
+
+  async function reconnectDeepScrape() {
+    try {
+      const storedId = localStorage.getItem(DEEP_SCRAPE_JOB_ID_KEY);
+      let data: DeepScrapeJobStatus | null = null;
+
+      if (storedId) {
+        const res = await fetch(`${API}/deep-scrape/status/${storedId}`);
+        if (res.ok) data = await res.json();
+      }
+      if (!data) {
+        // No (valid) stored job — fall back to whatever the backend last ran.
+        const res = await fetch(`${API}/deep-scrape/status`);
+        if (res.ok) {
+          const wrapped = await res.json();
+          data = wrapped.job;
+        }
+      }
+
+      if (data) {
+        localStorage.setItem(DEEP_SCRAPE_JOB_ID_KEY, data.job_id);
+        setDeepUrl(data.url);
+        setDeepMode(data.mode === "state" ? "state" : "district");
+        setDeepJob(data);
+        if (DEEP_SCRAPE_ACTIVE_STATUSES.includes(data.status)) {
+          pollDeepScrapeStatus(data.job_id);
+        }
+      }
+    } catch { /* backend not ready yet */ }
+  }
+
+  async function fetchCategoryMap() {
+    try {
+      const res = await fetch(`${API}/category-map`);
+      if (res.ok) {
+        const data = await res.json();
+        setDeepCategoryMap(data.categories || {});
+      }
+    } catch { /* backend not ready yet */ }
+  }
+
+  async function parseHtmlToCategoryMap() {
+    if (!deepUrl.trim()) {
+      toast.error("Paste the JustDial category URL first.");
+      return;
+    }
+    if (!deepHtmlContent.trim()) {
+      toast.error("Paste the category page's HTML first.");
+      return;
+    }
+    setDeepParsingHtml(true);
+    try {
+      const res = await fetch(`${API}/category-map/parse-html`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: deepUrl.trim(), html_content: deepHtmlContent }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.detail || "Failed to parse HTML.");
+        return;
+      }
+      toast.success(`Saved ${data.count} subcategories for ${data.main_category}.`);
+      setDeepHtmlContent("");
+      fetchCategoryMap();
+    } catch (e) {
+      toast.error("Network error parsing HTML.");
+    } finally {
+      setDeepParsingHtml(false);
+    }
   }
 
   async function startDeepScrape() {
@@ -857,6 +916,8 @@ function Dashboard() {
         return;
       }
       toast.success("Deep Scrape started.");
+      localStorage.setItem(DEEP_SCRAPE_JOB_ID_KEY, data.job_id);
+      const now = new Date().toISOString();
       setDeepJob({
         job_id: data.job_id,
         url: deepUrl.trim(),
@@ -868,8 +929,12 @@ function Dashboard() {
         duplicates_skipped: 0,
         saved_to_db: 0,
         current_subcategory: null,
+        created_at: now,
+        updated_at: now,
+        log_tail: [],
       });
       pollDeepScrapeStatus(data.job_id);
+      fetchRecentDeepScrapeJobs();
     } catch (e) {
       toast.error("Network error starting Deep Scrape.");
     } finally {
@@ -3470,135 +3535,238 @@ function Dashboard() {
             {/* ── DEEP SCRAPE TAB ── */}
             {activeTab === "deep_scrape" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Layers className="size-4 text-brand" />
-                    <h3 className="text-base font-semibold">Deep Category Scraper</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Paste a JustDial category page URL (e.g. https://www.justdial.com/Kasaragod/Hospitals/nct-10253670).
-                    It discovers every subcategory listed on that page, then scrapes each one — either just this
-                    district, or all 14 Kerala districts.
-                  </p>
-
-                  <div className="space-y-4 pt-2">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">JustDial Category URL</label>
-                      <input
-                        type="text"
-                        value={deepUrl}
-                        onChange={(e) => setDeepUrl(e.target.value)}
-                        placeholder="https://www.justdial.com/Kasaragod/Hospitals/nct-10253670"
-                        disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
-                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand disabled:opacity-60"
-                      />
+                <div className="flex flex-col gap-5">
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Layers className="size-4 text-brand" />
+                      <h3 className="text-base font-semibold">Deep Category Scraper</h3>
                     </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Paste a JustDial category page URL (e.g. https://www.justdial.com/Kasaragod/Hospitals/nct-10253670).
+                      Subcategories come from the saved category map below (seeded with Hospitals, Doctors, Restaurants) —
+                      each is then scraped, either just this district or all 14 Kerala districts.
+                    </p>
 
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Scope</label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDeepMode("district")}
+                    <div className="space-y-4 pt-2">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">JustDial Category URL</label>
+                        <input
+                          type="text"
+                          value={deepUrl}
+                          onChange={(e) => setDeepUrl(e.target.value)}
+                          placeholder="https://www.justdial.com/Kasaragod/Hospitals/nct-10253670"
                           disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
-                          className={cn(
-                            "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
-                            deepMode === "district" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
-                          )}
+                          className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand disabled:opacity-60"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">Scope</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDeepMode("district")}
+                            disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
+                            className={cn(
+                              "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
+                              deepMode === "district" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
+                            )}
+                          >
+                            District (URL's city only)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeepMode("state")}
+                            disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
+                            className={cn(
+                              "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
+                              deepMode === "state" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
+                            )}
+                          >
+                            State (all Kerala districts)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pt-1">
+                        <Button
+                          onClick={startDeepScrape}
+                          disabled={deepStarting || (!!deepJob && (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping"))}
+                          className="w-full h-10 text-white font-medium shadow-brand text-xs"
+                          style={{ background: "var(--gradient-brand)" }}
                         >
-                          District (URL's city only)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeepMode("state")}
-                          disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
-                          className={cn(
-                            "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
-                            deepMode === "state" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
-                          )}
-                        >
-                          State (all Kerala districts)
-                        </button>
+                          {deepStarting ? "Starting..." : deepJob && ["pending", "discovering", "scraping"].includes(deepJob.status) ? "Deep Scrape Running..." : "Start Deep Scrape"}
+                        </Button>
                       </div>
                     </div>
+                  </section>
 
-                    <div className="pt-3">
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="size-4 text-brand" />
+                      <h3 className="text-base font-semibold">Category Map</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Only Hospitals, Doctors, and Restaurants have a built-in subcategory list. For any other
+                      category, paste the URL above, then right-click the category page → View Page Source →
+                      paste the HTML here to extract and save its subcategories.
+                    </p>
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={deepHtmlContent}
+                        onChange={(e) => setDeepHtmlContent(e.target.value)}
+                        placeholder="Paste category page HTML here"
+                        className="w-full min-h-[70px] p-3 rounded-lg text-xs font-mono bg-background ring-1 ring-border outline-none focus:ring-brand resize-y"
+                      />
                       <Button
-                        onClick={startDeepScrape}
-                        disabled={deepStarting || (!!deepJob && (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping"))}
-                        className="w-full h-10 text-white font-medium shadow-brand text-xs"
-                        style={{ background: "var(--gradient-brand)" }}
+                        onClick={parseHtmlToCategoryMap}
+                        disabled={deepParsingHtml}
+                        variant="outline"
+                        className="w-full h-9 text-xs"
                       >
-                        {deepStarting ? "Starting..." : deepJob && ["pending", "discovering", "scraping"].includes(deepJob.status) ? "Deep Scrape Running..." : "Start Deep Scrape"}
+                        {deepParsingHtml ? "Parsing..." : "Parse & Save to Category Map"}
                       </Button>
                     </div>
-                  </div>
-                </section>
 
-                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Activity className="size-4 text-brand" />
-                    <h3 className="text-base font-semibold">Job Progress</h3>
-                  </div>
-
-                  {!deepJob ? (
-                    <div className="py-12 text-center text-muted-foreground text-xs">
-                      No job started yet. Paste a URL and click Start Deep Scrape.
+                    <div className="pt-1 space-y-2 max-h-[220px] overflow-y-auto">
+                      {Object.keys(deepCategoryMap).length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-4">No categories saved yet.</p>
+                      ) : (
+                        Object.entries(deepCategoryMap).map(([mainCat, subs]) => (
+                          <div key={mainCat} className="bg-background rounded-lg ring-1 ring-border p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold">{mainCat}</span>
+                              <span className="text-[10px] text-muted-foreground">{subs.length} subcategories</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {subs.map((s, i) => (
+                                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand" title={s.city ? `City: ${s.city}` : "All cities"}>
+                                  {s.subcategory}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Status</span>
-                        <span
-                          className={cn(
-                            "font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide",
-                            deepJob.status === "completed" && "bg-emerald-500/10 text-emerald-500",
-                            deepJob.status === "failed" && "bg-red-500/10 text-red-500",
-                            (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping") && "bg-brand/10 text-brand"
-                          )}
-                        >
-                          {deepJob.status}
-                        </span>
-                      </div>
+                  </section>
+                </div>
 
-                      {deepJob.total_subcategories > 0 && (
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between text-[11px] font-mono">
-                            <span className="text-muted-foreground">Subcategories</span>
-                            <span className="text-brand font-semibold">
-                              {deepJob.completed_subcategories} / {deepJob.total_subcategories}
+                <div className="flex flex-col gap-5">
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Activity className="size-4 text-brand" />
+                      <h3 className="text-base font-semibold">Job Progress</h3>
+                    </div>
+
+                    {!deepJob ? (
+                      <div className="py-12 text-center text-muted-foreground text-xs">
+                        No job started yet. Paste a URL and click Start Deep Scrape.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Status</span>
+                          <span
+                            className={cn(
+                              "font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide",
+                              deepJob.status === "completed" && "bg-emerald-500/10 text-emerald-500",
+                              deepJob.status === "failed" && "bg-red-500/10 text-red-500",
+                              (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping") && "bg-brand/10 text-brand"
+                            )}
+                          >
+                            {deepJob.status}
+                          </span>
+                        </div>
+
+                        {deepJob.total_subcategories > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-[11px] font-mono">
+                              <span className="text-muted-foreground">Subcategories</span>
+                              <span className="text-brand font-semibold">
+                                {deepJob.completed_subcategories} / {deepJob.total_subcategories}
+                              </span>
+                            </div>
+                            <Progress
+                              value={(deepJob.completed_subcategories / Math.max(deepJob.total_subcategories, 1)) * 100}
+                              className="h-1.5"
+                            />
+                          </div>
+                        )}
+
+                        {deepJob.current_subcategory && (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-semibold text-foreground">Currently scraping:</span> {deepJob.current_subcategory}
+                          </p>
+                        )}
+
+                        <div className="grid grid-cols-3 gap-2 pt-1">
+                          <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                            <div className="text-lg font-bold text-foreground">{deepJob.total_found}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">Found</div>
+                          </div>
+                          <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                            <div className="text-lg font-bold text-foreground">{deepJob.saved_to_db}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">Saved</div>
+                          </div>
+                          <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                            <div className="text-lg font-bold text-foreground">{deepJob.duplicates_skipped}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">Duplicates</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="size-4 text-brand" />
+                      <h3 className="text-base font-semibold">Recent Jobs</h3>
+                    </div>
+                    {deepRecentJobs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">No jobs yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {deepRecentJobs.map((job) => (
+                          <div key={job.job_id} className="bg-background rounded-lg ring-1 ring-border p-2.5 flex items-center gap-3 text-xs">
+                            <span
+                              className={cn(
+                                "shrink-0 font-semibold px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wide",
+                                job.status === "completed" && "bg-emerald-500/10 text-emerald-500",
+                                job.status === "failed" && "bg-red-500/10 text-red-500",
+                                DEEP_SCRAPE_ACTIVE_STATUSES.includes(job.status) && "bg-brand/10 text-brand"
+                              )}
+                            >
+                              {job.status}
+                            </span>
+                            <span className="truncate flex-1 text-muted-foreground" title={job.url}>
+                              {job.mode === "state" ? "State" : "District"} · {job.url.replace("https://www.justdial.com/", "")}
+                            </span>
+                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                              {job.saved_to_db} saved
                             </span>
                           </div>
-                          <Progress
-                            value={(deepJob.completed_subcategories / Math.max(deepJob.total_subcategories, 1)) * 100}
-                            className="h-1.5"
-                          />
-                        </div>
-                      )}
-
-                      {deepJob.current_subcategory && (
-                        <p className="text-xs text-muted-foreground">
-                          <span className="font-semibold text-foreground">Currently scraping:</span> {deepJob.current_subcategory}
-                        </p>
-                      )}
-
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
-                          <div className="text-lg font-bold text-foreground">{deepJob.total_found}</div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">Found</div>
-                        </div>
-                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
-                          <div className="text-lg font-bold text-foreground">{deepJob.saved_to_db}</div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">Saved</div>
-                        </div>
-                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
-                          <div className="text-lg font-bold text-foreground">{deepJob.duplicates_skipped}</div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">Duplicates</div>
-                        </div>
+                        ))}
                       </div>
+                    )}
+                  </section>
+
+                  <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant flex flex-col flex-1 space-y-3 min-h-[260px]">
+                    <div className="flex items-center gap-2 border-b border-border pb-3 shrink-0">
+                      <Activity className={cn("size-4 text-brand", deepJob && ["pending", "discovering", "scraping"].includes(deepJob.status) && "animate-pulse")} />
+                      <h3 className="text-base font-semibold">Live Log</h3>
                     </div>
-                  )}
-                </section>
+                    <div ref={deepLogRef} className="flex-1 bg-background/50 rounded-xl ring-1 ring-border p-3 font-mono text-[11px] overflow-y-auto space-y-1 max-h-[320px]">
+                      {!deepJob || deepJob.log_tail.length === 0 ? (
+                        <p className="text-muted-foreground">No log messages yet.</p>
+                      ) : (
+                        deepJob.log_tail.map((line, i) => (
+                          <div key={i} className="leading-relaxed text-foreground">{line}</div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                </div>
               </div>
             )}
 
@@ -5056,39 +5224,6 @@ function GMapsPanel({ API, addLog, onDone }: {
           </section>
         )}
       </div>
-
-      {importHtmlOpen && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card w-full max-w-2xl rounded-2xl shadow-2xl ring-1 ring-border p-6 flex flex-col max-h-[90vh]">
-            <h2 className="text-lg font-bold mb-4">Import Categories from HTML</h2>
-            <div className="space-y-4 overflow-y-auto flex-1">
-              <FormField label="Main Category">
-                <input 
-                  type="text" 
-                  value={importHtmlMainCategory} 
-                  onChange={(e) => setImportHtmlMainCategory(e.target.value)} 
-                  className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" 
-                  placeholder="e.g. Restaurants" 
-                />
-              </FormField>
-              <FormField label="Raw HTML Content">
-                <textarea 
-                  value={importHtmlContent} 
-                  onChange={(e) => setImportHtmlContent(e.target.value)} 
-                  className="w-full h-48 rounded-lg p-3 text-sm font-mono bg-background ring-1 ring-border outline-none focus:ring-brand resize-none" 
-                  placeholder="<ul class='some-list'><li>Fast Food</li><li>Cafe</li></ul>..." 
-                />
-              </FormField>
-            </div>
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-              <Button onClick={() => setImportHtmlOpen(false)} variant="outline">Cancel</Button>
-              <Button onClick={submitHtmlImport} disabled={isImportingHtml} className="bg-brand text-white shadow-brand">
-                {isImportingHtml ? "Importing..." : "Process & Save"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
