@@ -66,6 +66,28 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ==========================================
 router = APIRouter()
 
+from fastapi import Header
+
+def get_current_user(authorization: str = Header(None)) -> Optional[dict]:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ")[1]
+    if not token or token == "null" or token == "undefined":
+        return None
+    try:
+        import base64
+        import json
+        payload_segment = token.split(".")[1]
+        padded = payload_segment + "=" * (4 - len(payload_segment) % 4)
+        decoded_bytes = base64.urlsafe_b64decode(padded)
+        payload = json.loads(decoded_bytes.decode("utf-8"))
+        return {
+            "user_id": payload.get("sub"),
+            "email": payload.get("email")
+        }
+    except Exception:
+        return None
+
 @router.get("/db-status")
 def get_db_status(db: Session = Depends(get_db)):
     from sqlalchemy import text
@@ -279,7 +301,8 @@ def upload_listing(
     latitude: Optional[str] = Form(None),
     longitude: Optional[str] = Form(None),
     images: List[UploadFile] = File(default=[]),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user)
 ):
     try:
         # Hybrid Location Engine: Try Coordinate Reverse Geocoding first, fallback to address text parsing
@@ -335,8 +358,12 @@ def upload_listing(
             except Exception as e:
                 print(f"Location correction failed for {name}: {e}")
 
+        user_id = current_user["user_id"] if current_user else None
         with ingest_lock:
-            existing = db.query(models.Listing).filter(models.Listing.name == name).first()
+            existing_query = db.query(models.Listing).filter(models.Listing.name == name)
+            if user_id:
+                existing_query = existing_query.filter(models.Listing.user_id == user_id)
+            existing = existing_query.first()
             
             if existing:
                 listing = existing
@@ -362,6 +389,7 @@ def upload_listing(
                     listing.images.clear()
             else:
                 listing = models.Listing(
+                    user_id=user_id,
                     name=name, phone=phone or "", whatsapp=whatsapp or "", address=address or "",
                     jd_url=source_url, category=cleaned_cat or "", subcategory=cleaned_sub, normalized_category=normalized_cat or "Other",
                     opening_hours=opening_hours or "",
@@ -467,7 +495,8 @@ def get_listings(
     source: Optional[str] = None,
     sort: Optional[str] = None,
     today_only: Optional[bool] = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user)
 ):
     # 1. Search Professionals Union
     pros_result = []
@@ -509,6 +538,8 @@ def get_listings(
 
     # Standard Listing Query Fallback
     query = db.query(models.Listing)
+    if current_user:
+        query = query.filter(models.Listing.user_id == current_user["user_id"])
     
     if today_only:
         import datetime
@@ -600,21 +631,37 @@ def get_listings(
 # 3. NEW: GET STATS (For the Dashboard)
 # ==========================================
 @router.get("/stats")
-def get_stats(db: Session = Depends(get_db)):
+def get_stats(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
     from sqlalchemy import func
     import datetime
-    total_listings = db.query(models.Listing).count()
-    total_images = db.query(models.ListingImage).count()
-    total_menu_items = db.query(models.MenuItem).count()
+    user_id = current_user["user_id"] if current_user else None
+    
+    total_listings_query = db.query(models.Listing)
+    if user_id:
+        total_listings_query = total_listings_query.filter(models.Listing.user_id == user_id)
+    total_listings = total_listings_query.count()
+    
+    if user_id:
+        total_images = db.query(models.ListingImage).join(models.Listing).filter(models.Listing.user_id == user_id).count()
+        total_menu_items = db.query(models.MenuItem).join(models.Listing).filter(models.Listing.user_id == user_id).count()
+    else:
+        total_images = db.query(models.ListingImage).count()
+        total_menu_items = db.query(models.MenuItem).count()
     
     # Calculate scraped today count
     today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
-    scraped_today = db.query(models.Listing).filter(models.Listing.scraped_at >= today_start).count()
+    scraped_today_query = db.query(models.Listing).filter(models.Listing.scraped_at >= today_start)
+    if user_id:
+        scraped_today_query = scraped_today_query.filter(models.Listing.user_id == user_id)
+    scraped_today = scraped_today_query.count()
     
-    # Category group counts (schools are now merged into listings table)
-    cat_counts = db.query(
+    # Category group counts
+    cat_counts_query = db.query(
         models.Listing.normalized_category, func.count(models.Listing.id)
-    ).group_by(models.Listing.normalized_category).all()
+    )
+    if user_id:
+        cat_counts_query = cat_counts_query.filter(models.Listing.user_id == user_id)
+    cat_counts = cat_counts_query.group_by(models.Listing.normalized_category).all()
     category_breakdown = {(cat or "Other"): count for cat, count in cat_counts}
     
     return {
@@ -627,22 +674,32 @@ def get_stats(db: Session = Depends(get_db)):
     }
 
 @router.get("/stats/scraped-today-breakdown")
-def get_scraped_today_breakdown(db: Session = Depends(get_db)):
+def get_scraped_today_breakdown(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
     from sqlalchemy import func
     import datetime
     today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    user_id = current_user["user_id"] if current_user else None
     
-    city_counts = db.query(
+    city_counts_query = db.query(
         models.Listing.district, func.count(models.Listing.id)
-    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.district).order_by(func.count(models.Listing.id).desc()).all()
+    ).filter(models.Listing.scraped_at >= today_start)
+    if user_id:
+        city_counts_query = city_counts_query.filter(models.Listing.user_id == user_id)
+    city_counts = city_counts_query.group_by(models.Listing.district).order_by(func.count(models.Listing.id).desc()).all()
     
-    cat_counts = db.query(
+    cat_counts_query = db.query(
         models.Listing.category, func.count(models.Listing.id)
-    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
+    ).filter(models.Listing.scraped_at >= today_start)
+    if user_id:
+        cat_counts_query = cat_counts_query.filter(models.Listing.user_id == user_id)
+    cat_counts = cat_counts_query.group_by(models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
     
-    combo_counts = db.query(
+    combo_counts_query = db.query(
         models.Listing.district, models.Listing.category, func.count(models.Listing.id)
-    ).filter(models.Listing.scraped_at >= today_start).group_by(models.Listing.district, models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
+    ).filter(models.Listing.scraped_at >= today_start)
+    if user_id:
+        combo_counts_query = combo_counts_query.filter(models.Listing.user_id == user_id)
+    combo_counts = combo_counts_query.group_by(models.Listing.district, models.Listing.category).order_by(func.count(models.Listing.id).desc()).all()
     
     return {
         "by_city": [{"city": (city or "Unknown"), "count": count} for city, count in city_counts],
@@ -654,15 +711,19 @@ def get_scraped_today_breakdown(db: Session = Depends(get_db)):
 # 3a. NEW: COVERAGE TRACKER
 # ==========================================
 @router.get("/coverage")
-def get_coverage(db: Session = Depends(get_db)):
+def get_coverage(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
     from sqlalchemy import func
-    # Group by state, district, category and count
-    coverage_counts = db.query(
+    user_id = current_user["user_id"] if current_user else None
+    
+    coverage_counts_query = db.query(
         models.Listing.state,
         models.Listing.district,
         models.Listing.category,
         func.count(models.Listing.id)
-    ).group_by(
+    )
+    if user_id:
+        coverage_counts_query = coverage_counts_query.filter(models.Listing.user_id == user_id)
+    coverage_counts = coverage_counts_query.group_by(
         models.Listing.state,
         models.Listing.district,
         models.Listing.category
@@ -736,8 +797,12 @@ def get_categories_summary(db: Session = Depends(get_db)):
 # 4. NEW: DELETE DUPLICATES
 # ==========================================
 @router.post("/delete-duplicates")
-def delete_duplicates(db: Session = Depends(get_db)):
-    listings = db.query(models.Listing).all()
+def delete_duplicates(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
+    user_id = current_user["user_id"] if current_user else None
+    query = db.query(models.Listing)
+    if user_id:
+        query = query.filter(models.Listing.user_id == user_id)
+    listings = query.all()
     seen = {}
     duplicates = []
     
@@ -760,11 +825,15 @@ def delete_duplicates(db: Session = Depends(get_db)):
 # ==========================================
 @router.delete("/listing/{listing_id}")
 @router.delete("/restaurant/{listing_id}", deprecated=True)
-def delete_listing(listing_id: int, delete_images: bool = False, db: Session = Depends(get_db)):
-    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+def delete_listing(listing_id: int, delete_images: bool = False, db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
+    user_id = current_user["user_id"] if current_user else None
+    query = db.query(models.Listing).filter(models.Listing.id == listing_id)
+    if user_id:
+        query = query.filter(models.Listing.user_id == user_id)
+    listing = query.first()
     
     if not listing:
-        raise HTTPException(status_code=404, detail=f"Listing with ID {listing_id} not found")
+        raise HTTPException(status_code=404, detail=f"Listing with ID {listing_id} not found or access denied")
     
     # Collect images to delete if needed
     image_paths = []
@@ -794,17 +863,48 @@ def delete_listing(listing_id: int, delete_images: bool = False, db: Session = D
 # 6. NEW: CLEAR ALL DATA (Danger Zone)
 # ==========================================
 @router.post("/clear-all")
-def clear_all(db: Session = Depends(get_db)):
-    # First collect all image paths
-    images = db.query(models.ListingImage).all()
-    image_paths = [img.image_path for img in images if img.image_path and os.path.exists(img.image_path)]
+def clear_all(db: Session = Depends(get_db), current_user: Optional[dict] = Depends(get_current_user)):
+    user_id = current_user["user_id"] if current_user else None
     
-    # Delete from DB
-    db.query(models.MenuItem).delete()
-    db.query(models.Amenity).delete()
-    db.query(models.ListingImage).delete()
-    db.query(models.Listing).delete()
-    db.commit()
+    if user_id:
+        # Get listing IDs belonging to the user
+        user_listing_ids = [r[0] for r in db.query(models.Listing.id).filter(models.Listing.user_id == user_id).all()]
+        if user_listing_ids:
+            # Collect images to delete from file system
+            images = db.query(models.ListingImage).filter(models.ListingImage.listing_id.in_(user_listing_ids)).all()
+            image_paths = [img.image_path for img in images if img.image_path and os.path.exists(img.image_path)]
+            
+            db.query(models.MenuItem).filter(models.MenuItem.listing_id.in_(user_listing_ids)).delete(synchronize_session=False)
+            db.query(models.Amenity).filter(models.Amenity.listing_id.in_(user_listing_ids)).delete(synchronize_session=False)
+            db.query(models.ListingImage).filter(models.ListingImage.listing_id.in_(user_listing_ids)).delete(synchronize_session=False)
+            db.query(models.Listing).filter(models.Listing.id.in_(user_listing_ids)).delete(synchronize_session=False)
+            db.commit()
+        else:
+            image_paths = []
+    else:
+        # First collect all image paths
+        images = db.query(models.ListingImage).all()
+        image_paths = [img.image_path for img in images if img.image_path and os.path.exists(img.image_path)]
+        
+        # Delete from DB
+        db.query(models.MenuItem).delete()
+        db.query(models.Amenity).delete()
+        db.query(models.ListingImage).delete()
+        db.query(models.Listing).delete()
+        db.commit()
+    
+    # Delete images in background to reduce lag
+    if image_paths:
+        import threading
+        def delete_all_files():
+            for img_path in image_paths:
+                try:
+                    os.remove(img_path)
+                except Exception:
+                    pass
+        threading.Thread(target=delete_all_files).start()
+    
+    return {"status": "success"}
     
     # Delete images in background to reduce lag
     if image_paths:
@@ -2042,3 +2142,62 @@ def get_phone_size_api():
     except Exception:
         pass
     return {"width": 1440, "height": 2960}
+
+# ==========================================
+# DEEP CATEGORY SCRAPER
+# ==========================================
+import uuid as _uuid
+from pydantic import BaseModel as _BaseModel
+
+class DeepScrapeRequest(_BaseModel):
+    url: str
+    mode: str  # "district" or "state"
+
+@router.post("/deep-scrape")
+def start_deep_scrape(request: DeepScrapeRequest, db: Session = Depends(get_db)):
+    if request.mode not in ("district", "state"):
+        raise HTTPException(status_code=400, detail="mode must be 'district' or 'state'")
+    if not request.url or "justdial.com" not in request.url:
+        raise HTTPException(status_code=400, detail="A valid JustDial category URL is required")
+
+    active_job = db.query(models.DeepScrapeJob).filter(
+        models.DeepScrapeJob.status.in_(["pending", "discovering", "scraping"])
+    ).first()
+    if active_job:
+        raise HTTPException(status_code=400, detail=f"A deep-scrape job is already running (job_id={active_job.job_id})")
+
+    job_id = _uuid.uuid4().hex[:12]
+    job = models.DeepScrapeJob(
+        job_id=job_id,
+        url=request.url,
+        mode=request.mode,
+        status="pending",
+    )
+    db.add(job)
+    db.commit()
+
+    from app.scraper.deep_category_scraper import run_deep_scrape_job
+    import threading
+    threading.Thread(target=run_deep_scrape_job, args=(job_id, request.url, request.mode), daemon=True).start()
+
+    return {"job_id": job_id, "status": "started"}
+
+@router.get("/deep-scrape/status/{job_id}")
+def get_deep_scrape_status(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": job.job_id,
+        "url": job.url,
+        "mode": job.mode,
+        "status": job.status,
+        "total_subcategories": job.total_subcategories,
+        "completed_subcategories": job.completed_subcategories,
+        "total_found": job.total_found,
+        "duplicates_skipped": job.duplicates_skipped,
+        "saved_to_db": (job.total_found or 0) - (job.duplicates_skipped or 0),
+        "current_subcategory": job.current_subcategory,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }

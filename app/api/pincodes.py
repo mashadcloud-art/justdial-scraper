@@ -1,9 +1,11 @@
 import os
 import json
 import requests
+import re
+from config import settings
 
 PINCODES_URL = "https://raw.githubusercontent.com/mithunsasidharan/India-Pincode-Lookup/master/pincodes.json"
-CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "pincodes.json")
+CACHE_FILE = os.path.join(settings.DATA_FOLDER, "pincodes.json")
 
 def get_pincodes_for_district(district_name: str):
     """
@@ -132,8 +134,62 @@ def get_pincodes_with_names(district: str):
                     # Clean up BO/SO/HO from place name
                     clean_name = re.sub(r'\s+(B\.O|S\.O|H\.O)$', '', name, flags=re.IGNORECASE)
                     results.append({"pin": pin, "name": clean_name})
-                    
+
         return results
     except Exception as e:
         print(f"Error reading pincodes: {e}")
         return []
+
+
+def get_verified_place_names_for_district(district_name: str, category_hint: str = "Restaurants") -> list:
+    """
+    Returns deduplicated post-office place names for a district (sourced from the full
+    India pincode database — typically 50-100+ per district, far more than the curated
+    `get_famous_places` list). Each candidate is verified against a live JustDial search
+    so obviously small/rural post offices that JustDial has no results for are dropped.
+
+    Result is cached to disk since verification makes one live request per candidate place.
+    """
+    cache_path = os.path.join(settings.DATA_FOLDER, f"verified_places_{district_name.lower().strip().replace(' ', '_')}.json")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+                if cached:
+                    return cached
+        except Exception:
+            pass
+
+    raw_places = get_pincodes_with_names(district_name)
+    seen = set()
+    candidates = []
+    for item in raw_places:
+        name = str(item.get("name", "")).strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        candidates.append(name)
+
+    if not candidates:
+        return []
+
+    from jd_api_scraper import scrape_jd_api
+    verified = []
+    for place in candidates:
+        try:
+            result = scrape_jd_api(district_name, f"{category_hint} in {place}", limit=1)
+            if result.get("rows"):
+                verified.append(place)
+        except Exception:
+            continue
+
+    result_list = verified if verified else candidates
+
+    try:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(result_list, f)
+    except Exception:
+        pass
+
+    return result_list

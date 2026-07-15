@@ -7,6 +7,7 @@ class Listing(Base):
     __tablename__ = "listings"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), nullable=True, index=True)
     name = Column(String(500), nullable=False, index=True)
     address = Column(Text)
     phone = Column(String(50))
@@ -216,6 +217,7 @@ class ScraperJob(Base):
     __tablename__ = "scraper_jobs"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), nullable=True, index=True)
     district = Column(String(100), nullable=False)
     query = Column(String(200), nullable=False)
     category = Column(String(200), nullable=False)
@@ -246,7 +248,7 @@ class CourseProvider(Base):
 
 class Professional(Base):
     __tablename__ = "professionals"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     image_url = Column(Text)
@@ -255,5 +257,35 @@ class Professional(Base):
     listing_id = Column(Integer, ForeignKey("listings.id", ondelete="CASCADE"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    listing = relationship("Listing", back_populates="professionals")
+
+    listing = relationship("Listing", back_populates="professionals")
+
+# ==========================================
+# NEW: DEEP CATEGORY SCRAPER MODELS
+# ==========================================
+class JDCategory(Base):
+    __tablename__ = "jd_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    city = Column(String(100), nullable=False, index=True)
+    parent_category = Column(String(200), nullable=False)
+    subcategory_name = Column(String(200), nullable=False)
+    subcategory_nct_code = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DeepScrapeJob(Base):
+    __tablename__ = "scrape_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(50), unique=True, index=True, nullable=False)
+    url = Column(String(1000), nullable=False)
+    mode = Column(String(20), nullable=False)  # "district" or "state"
+    status = Column(String(30), default="pending")  # pending, discovering, scraping, completed, failed
+    total_subcategories = Column(Integer, default=0)
+    completed_subcategories = Column(Integer, default=0)
+    total_found = Column(Integer, default=0)
+    duplicates_skipped = Column(Integer, default=0)
+    current_subcategory = Column(String(300), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
