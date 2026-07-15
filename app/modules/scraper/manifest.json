@@ -1,0 +1,6 @@
+{
+  "name": "scraper",
+  "version": "1.0.0",
+  "description": "Scrape triggers (web/ADB/API/Playwright/Google Maps), listing ingestion, ADB device/proxy control, and category/pincode lookups.",
+  "prefix": "/api/v1"
+}

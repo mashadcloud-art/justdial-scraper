@@ -1,0 +1,6 @@
+{
+  "name": "auth",
+  "version": "1.0.0",
+  "description": "User accounts, local login, and the first-time setup wizard.",
+  "prefix": "/api/v1/setup"
+}

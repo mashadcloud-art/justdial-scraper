@@ -1,5 +1,7 @@
 import sys
 import os
+import json
+import importlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,10 +10,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings
 from app.database import engine, Base
-from app.api import sync, categories, pincodes  # 🟢 ADDED CATEGORIES AND PINCODES HERE
-from app.api import gmaps as gmaps_api  # 🟢 Google Maps scraper
-from app.api import simple_scrape as simple_scrape_api  # 🟢 Simple one-shot scraper
-from app.api import setup as setup_api  # 🟢 First-time setup wizard
 
 
 # Create tables asynchronously in a background thread to prevent blocking server startup
@@ -38,23 +36,11 @@ threading.Thread(target=init_db, daemon=True).start()
 app = FastAPI(title="JustDial Desktop Scraper API")
 
 # ─── Auto-Start JD Scraper on Server Boot ────────────────────────────────────
-import subprocess
-import json as _json
-
-_AUTO_SCRAPE_CONFIG = "auto_scrape_config.json"
-_DEFAULT_SCRAPE_CONFIG = {
-    "enabled": True,
-    "district": "Kannur",
-    "category": "Restaurants",
-    "pages": 10
-}
-
 @app.on_event("startup")
 async def auto_start_jd_scraper():
     """Auto-scraper disabled in production build."""
     pass
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 
 app.add_middleware(
@@ -72,12 +58,34 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
-app.include_router(sync.router, prefix="/api/v1")  # includes /deep-scrape and /deep-scrape/status/{job_id}
-app.include_router(categories.router)
-app.include_router(pincodes.router)
-app.include_router(gmaps_api.router)
-app.include_router(simple_scrape_api.router)
-app.include_router(setup_api.router)  # Setup wizard
+
+# ─── Feature modules (app/modules/<name>/) ───────────────────────────────────
+# Each module owns its own router.py + service.py + manifest.json. Removing a
+# name from this list (or a bug inside that module's router) only drops that
+# module's endpoints — the others keep working.
+MODULE_NAMES = ["auth", "scraper", "deep_scrape", "dashboard", "export"]
+
+def _register_modules(app: FastAPI):
+    modules_dir = os.path.join(os.path.dirname(__file__), "modules")
+    for name in MODULE_NAMES:
+        manifest = {}
+        manifest_path = os.path.join(modules_dir, name, "manifest.json")
+        try:
+            if os.path.exists(manifest_path):
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+        except Exception as e:
+            print(f"[modules] Could not read manifest for '{name}': {e}")
+
+        try:
+            router_module = importlib.import_module(f"app.modules.{name}.router")
+            app.include_router(router_module.router)
+            print(f"[modules] Loaded '{name}' v{manifest.get('version', '?')} — {manifest.get('description', '')}")
+        except Exception as e:
+            print(f"[modules] Failed to load '{name}': {e}")
+
+_register_modules(app)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 if os.path.exists("data/uploaded_images"):
@@ -125,129 +133,22 @@ def get_scraper_page():
     return JSONResponse({"status": "running", "message": "JustDial API is ready! Open /scraper.html"})
 
 
-
-from app.database import SessionLocal
-from app import models
-from sqlalchemy import func
-
-import subprocess
-import sys
-import psutil
-try:
-    import psutil._psutil_windows
-except ImportError:
-    pass
-from fastapi import HTTPException
-
-@app.get("/api/v1/daemon/status")
-def get_daemon_status():
-    is_running = False
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            cmd = proc.info.get('cmdline') or []
-            if any('scrape_background_images.py' in part for part in cmd):
-                is_running = True
-                break
-        except Exception:
-            pass
-
-    db = SessionLocal()
-    try:
-        total_listings = db.query(models.Listing).count()
-        pending_count = db.query(models.Listing.id).outerjoin(models.ListingImage).group_by(models.Listing.id).having(func.count(models.ListingImage.id) <= 1).count()
-        completed_count = total_listings - pending_count
-    except Exception as e:
-        total_listings = 0
-        pending_count = 0
-        completed_count = 0
-        print(f"Error querying daemon stats: {e}")
-    finally:
-        db.close()
-
-    logs = []
-    log_files = ["bg_scraper_logs.txt", "cloud_bg_scraper.log"]
-    for f_name in log_files:
-        if os.path.exists(f_name):
-            try:
-                with open(f_name, "r", encoding="utf-8", errors="replace") as lf:
-                    lines = lf.readlines()
-                    logs = [line.strip() for line in lines[-25:]]
-                break
-            except Exception:
-                pass
-                
-    return {
-        "total_listings": total_listings,
-        "pending_count": pending_count,
-        "completed_count": completed_count,
-        "is_running": is_running,
-        "logs": logs
-    }
-
-@app.post("/api/v1/daemon/start")
-def start_daemon():
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            cmd = proc.info.get('cmdline') or []
-            if any('scrape_background_images.py' in part for part in cmd):
-                return {"status": "already_running"}
-        except Exception:
-            pass
-
-    try:
-        python_exe = sys.executable
-        log_file_path = "bg_scraper_logs.txt"
-        log_file = open(log_file_path, "a", encoding="utf-8")
-        subprocess.Popen(
-            [python_exe, "-u", "app/scraper/scrape_background_images.py", "--no-shutdown"],
-            stdout=log_file,
-            stderr=subprocess.STDOUT
-        )
-        return {"status": "started"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start daemon: {e}")
-
-@app.post("/api/v1/daemon/stop")
-def stop_daemon():
-    stopped = False
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            cmd = proc.info.get('cmdline') or []
-            if any('scrape_background_images.py' in part for part in cmd):
-                proc.terminate()
-                stopped = True
-        except Exception:
-            pass
-    return {"status": "stopped" if stopped else "not_running"}
-
-@app.post("/api/v1/system/update")
-def system_update():
-    try:
-        import subprocess
-        result = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
-        return {
-            "status": "success",
-            "message": "Git pull completed successfully.",
-            "output": result.stdout
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update: {str(e)}")
-
 # --- SERVE FRONTEND STATIC FILES ---
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import HTTPException
 
 if os.path.exists("ui/dist/client"):
     # Mount the static assets folder (CSS, JS)
     app.mount("/assets", StaticFiles(directory="ui/dist/client/assets"), name="assets")
-    
+
     # Catch-all route to serve the React SPA index.html
     @app.get("/{rest_of_path:path}")
     def serve_frontend(rest_of_path: str):
         # Allow API and media directories to bypass
         if rest_of_path.startswith("api/") or rest_of_path.startswith("images/") or rest_of_path.startswith("scraped_images/") or rest_of_path.startswith("uploaded_images/"):
             raise HTTPException(status_code=404, detail="Not found")
-            
+
         index_path = "ui/dist/client/index.html"
         if os.path.exists(index_path):
             with open(index_path, "r", encoding="utf-8") as f:

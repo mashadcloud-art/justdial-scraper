@@ -1,0 +1,6 @@
+{
+  "name": "dashboard",
+  "version": "1.0.0",
+  "description": "Read/manage scraped listings, stats, coverage, database/system status, and the background image daemon.",
+  "prefix": "/api/v1"
+}

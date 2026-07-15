@@ -1,0 +1,6 @@
+{
+  "name": "deep_scrape",
+  "version": "1.0.0",
+  "description": "Orchestrates full-category deep scrape jobs and the JustDial category map used to seed them.",
+  "prefix": "/api/v1"
+}

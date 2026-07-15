@@ -1,0 +1,6 @@
+{
+  "name": "export",
+  "version": "1.0.0",
+  "description": "List, download, delete, and re-ingest compiled JSON scrape exports.",
+  "prefix": "/api/v1/compiled-jsons"
+}
