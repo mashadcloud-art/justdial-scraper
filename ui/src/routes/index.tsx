@@ -17,6 +17,7 @@ import {
   Gauge,
   Image as ImageIcon,
   LayoutDashboard,
+  Layers,
   Link2,
   MapPin,
   Maximize2,
@@ -86,7 +87,7 @@ type Business = {
   professionals?: { name: string; achievement: string; tags: string; image_url?: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | { type: "detail"; business: Business };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
 
@@ -637,6 +638,31 @@ function Dashboard() {
   const [coverageData, setCoverageData] = useState<Record<string, Record<string, number>>>({});
   const [loadingCoverage, setLoadingCoverage] = useState(false);
 
+  // Deep Category Scraper
+  type DeepScrapeJobStatus = {
+    job_id: string;
+    url: string;
+    mode: string;
+    status: "pending" | "discovering" | "scraping" | "completed" | "failed";
+    total_subcategories: number;
+    completed_subcategories: number;
+    total_found: number;
+    duplicates_skipped: number;
+    saved_to_db: number;
+    current_subcategory: string | null;
+  };
+  const [deepUrl, setDeepUrl] = useState("");
+  const [deepMode, setDeepMode] = useState<"district" | "state">("district");
+  const [deepStarting, setDeepStarting] = useState(false);
+  const [deepJob, setDeepJob] = useState<DeepScrapeJobStatus | null>(null);
+  const deepPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (deepPollRef.current) clearInterval(deepPollRef.current);
+    };
+  }, []);
+
   const [categoryRefreshTick, setCategoryRefreshTick] = useState(0);
 
   async function fetchDbCategories() {
@@ -788,6 +814,66 @@ function Dashboard() {
       /* backend not ready yet */ 
     } finally {
       setLoadingCoverage(false);
+    }
+  }
+
+  function pollDeepScrapeStatus(jobId: string) {
+    if (deepPollRef.current) clearInterval(deepPollRef.current);
+    deepPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/deep-scrape/status/${jobId}`);
+        if (res.ok) {
+          const data: DeepScrapeJobStatus = await res.json();
+          setDeepJob(data);
+          if (data.status === "completed" || data.status === "failed") {
+            if (deepPollRef.current) clearInterval(deepPollRef.current);
+            deepPollRef.current = null;
+            if (data.status === "completed") {
+              toast.success(`Deep Scrape complete — ${data.saved_to_db} new listings saved.`);
+            } else {
+              toast.error(`Deep Scrape failed: ${data.current_subcategory || "Unknown error"}`);
+            }
+          }
+        }
+      } catch { /* transient network error, keep polling */ }
+    }, 2500);
+  }
+
+  async function startDeepScrape() {
+    if (!deepUrl.trim()) {
+      toast.error("Paste a JustDial category URL first.");
+      return;
+    }
+    setDeepStarting(true);
+    try {
+      const res = await fetch(`${API}/deep-scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: deepUrl.trim(), mode: deepMode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.detail || "Failed to start Deep Scrape.");
+        return;
+      }
+      toast.success("Deep Scrape started.");
+      setDeepJob({
+        job_id: data.job_id,
+        url: deepUrl.trim(),
+        mode: deepMode,
+        status: "pending",
+        total_subcategories: 0,
+        completed_subcategories: 0,
+        total_found: 0,
+        duplicates_skipped: 0,
+        saved_to_db: 0,
+        current_subcategory: null,
+      });
+      pollDeepScrapeStatus(data.job_id);
+    } catch (e) {
+      toast.error("Network error starting Deep Scrape.");
+    } finally {
+      setDeepStarting(false);
     }
   }
 
@@ -1652,6 +1738,7 @@ function Dashboard() {
           <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => { setActiveTab("scraper"); setMobileSidebarOpen(false); }}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => { setActiveTab("dashboard"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => { setActiveTab("coverage"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          <NavItem icon={<Layers className="size-4" />}        label="Deep Scrape"   active={activeTab === "deep_scrape"} onClick={() => { setActiveTab("deep_scrape"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
@@ -1740,7 +1827,7 @@ function Dashboard() {
             </button>
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -3378,6 +3465,141 @@ function Dashboard() {
                   )}
                 </div>
               </section>
+            )}
+
+            {/* ── DEEP SCRAPE TAB ── */}
+            {activeTab === "deep_scrape" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Layers className="size-4 text-brand" />
+                    <h3 className="text-base font-semibold">Deep Category Scraper</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Paste a JustDial category page URL (e.g. https://www.justdial.com/Kasaragod/Hospitals/nct-10253670).
+                    It discovers every subcategory listed on that page, then scrapes each one — either just this
+                    district, or all 14 Kerala districts.
+                  </p>
+
+                  <div className="space-y-4 pt-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">JustDial Category URL</label>
+                      <input
+                        type="text"
+                        value={deepUrl}
+                        onChange={(e) => setDeepUrl(e.target.value)}
+                        placeholder="https://www.justdial.com/Kasaragod/Hospitals/nct-10253670"
+                        disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
+                        className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand disabled:opacity-60"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">Scope</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeepMode("district")}
+                          disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
+                          className={cn(
+                            "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
+                            deepMode === "district" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
+                          )}
+                        >
+                          District (URL's city only)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeepMode("state")}
+                          disabled={!!deepJob && deepJob.status !== "completed" && deepJob.status !== "failed"}
+                          className={cn(
+                            "flex-1 h-10 rounded-lg text-xs font-medium ring-1 transition-colors disabled:opacity-60",
+                            deepMode === "state" ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background hover:bg-accent"
+                          )}
+                        >
+                          State (all Kerala districts)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-3">
+                      <Button
+                        onClick={startDeepScrape}
+                        disabled={deepStarting || (!!deepJob && (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping"))}
+                        className="w-full h-10 text-white font-medium shadow-brand text-xs"
+                        style={{ background: "var(--gradient-brand)" }}
+                      >
+                        {deepStarting ? "Starting..." : deepJob && ["pending", "discovering", "scraping"].includes(deepJob.status) ? "Deep Scrape Running..." : "Start Deep Scrape"}
+                      </Button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Activity className="size-4 text-brand" />
+                    <h3 className="text-base font-semibold">Job Progress</h3>
+                  </div>
+
+                  {!deepJob ? (
+                    <div className="py-12 text-center text-muted-foreground text-xs">
+                      No job started yet. Paste a URL and click Start Deep Scrape.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Status</span>
+                        <span
+                          className={cn(
+                            "font-semibold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide",
+                            deepJob.status === "completed" && "bg-emerald-500/10 text-emerald-500",
+                            deepJob.status === "failed" && "bg-red-500/10 text-red-500",
+                            (deepJob.status === "pending" || deepJob.status === "discovering" || deepJob.status === "scraping") && "bg-brand/10 text-brand"
+                          )}
+                        >
+                          {deepJob.status}
+                        </span>
+                      </div>
+
+                      {deepJob.total_subcategories > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[11px] font-mono">
+                            <span className="text-muted-foreground">Subcategories</span>
+                            <span className="text-brand font-semibold">
+                              {deepJob.completed_subcategories} / {deepJob.total_subcategories}
+                            </span>
+                          </div>
+                          <Progress
+                            value={(deepJob.completed_subcategories / Math.max(deepJob.total_subcategories, 1)) * 100}
+                            className="h-1.5"
+                          />
+                        </div>
+                      )}
+
+                      {deepJob.current_subcategory && (
+                        <p className="text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground">Currently scraping:</span> {deepJob.current_subcategory}
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                          <div className="text-lg font-bold text-foreground">{deepJob.total_found}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">Found</div>
+                        </div>
+                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                          <div className="text-lg font-bold text-foreground">{deepJob.saved_to_db}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">Saved</div>
+                        </div>
+                        <div className="bg-background rounded-lg ring-1 ring-border p-3 text-center">
+                          <div className="text-lg font-bold text-foreground">{deepJob.duplicates_skipped}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">Duplicates</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </div>
             )}
 
             {/* ── DASHBOARD TAB ── */}
