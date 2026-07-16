@@ -1,0 +1,8 @@
+{
+  "name": "mobile_scraper",
+  "version": "1.0.0",
+  "description": "Control JWT scraper on Samsung S8 via SSH",
+  "author": "Scapre",
+  "prefix": "/api/v1/mobile_scraper",
+  "routes": 4
+}

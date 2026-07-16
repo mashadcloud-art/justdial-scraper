@@ -33,6 +33,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Smartphone,
   Square,
   Star,
   Sun,
@@ -91,7 +92,7 @@ type Business = {
   professionals?: { name: string; achievement: string; tags: string; image_url?: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | "module_store" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | "module_store" | "mobile_scraper" | { type: "detail"; business: Business };
 
 type ModuleInfo = {
   name: string;
@@ -112,6 +113,7 @@ const TAB_MODULE: Record<string, string> = {
   coverage: "dashboard",
   deep_scrape: "deep_scrape",
   export_history: "export",
+  mobile_scraper: "mobile_scraper",
 };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
@@ -2114,6 +2116,9 @@ function Dashboard() {
           {isTabActive("export_history") && (
             <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           )}
+          {isTabActive("mobile_scraper") && (
+            <NavItem icon={<Smartphone className="size-4" />}    label="Mobile"        active={activeTab === "mobile_scraper"} onClick={() => { setActiveTab("mobile_scraper"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
           <NavItem icon={<Package className="size-4" />}        label="Module Store"  active={activeTab === "module_store"} onClick={() => { setActiveTab("module_store"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
           {/* Open record tabs — only in expanded mode */}
@@ -2201,7 +2206,7 @@ function Dashboard() {
             </button>
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : activeTab === "module_store" ? "Module Store" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : activeTab === "module_store" ? "Module Store" : activeTab === "mobile_scraper" ? "Mobile Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -4498,6 +4503,11 @@ function Dashboard() {
               <GMapsPanel API={API} addLog={addLog} onDone={async () => { await fetchRestaurants(); await fetchStats(); }} />
             )}
 
+            {/* ── MOBILE SCRAPER TAB ── */}
+            {activeTab === "mobile_scraper" && (
+              <MobileScraperPanel API={API} />
+            )}
+
             {/* ── DETAIL TAB ── */}
             {isDetailTab && (
               <DetailView
@@ -5588,6 +5598,202 @@ function Lightbox({ data, onChange, onClose }: { data: { images: string[]; index
 }
 
 // ─── Google Maps Scraper Panel ────────────────────────────────
+function MobileScraperPanel({ API }: { API: string }) {
+  const KERALA_DISTRICTS = CITIES["Kerala"] || [];
+
+  const [district, setDistrict] = useState(KERALA_DISTRICTS[0] || "");
+  const [category, setCategory] = useState("");
+  const [pages, setPages] = useState(10);
+  const [connected, setConnected] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [logText, setLogText] = useState("");
+  const [stats, setStats] = useState({ records_saved: 0, duplicates_skipped: 0 });
+  const logRef = useRef<HTMLDivElement>(null);
+
+  async function fetchStatus() {
+    try {
+      const res = await fetch(`${API}/mobile_scraper/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnected(!!data.connected);
+        setRunning(!!data.running);
+      } else {
+        setConnected(false);
+        setRunning(false);
+      }
+    } catch {
+      setConnected(false);
+      setRunning(false);
+    }
+  }
+
+  async function fetchLog() {
+    try {
+      const res = await fetch(`${API}/mobile_scraper/log`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogText(data.log || "");
+        setStats({
+          records_saved: data.records_saved || 0,
+          duplicates_skipped: data.duplicates_skipped || 0,
+        });
+      }
+    } catch { /* ignore — keep last known log */ }
+  }
+
+  useEffect(() => {
+    fetchStatus();
+    fetchLog();
+    const statusInterval = setInterval(fetchStatus, 5000);
+    const logInterval = setInterval(fetchLog, 5000);
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(logInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logText]);
+
+  async function startScrape() {
+    if (!district.trim() || !category.trim()) {
+      toast.error("District and category are required.");
+      return;
+    }
+    setStarting(true);
+    try {
+      const res = await fetch(`${API}/mobile_scraper/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ district, category, pages }),
+      });
+      if (res.ok) {
+        toast.success("Scrape started on S8.");
+        await fetchStatus();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || "Failed to start scrape.");
+      }
+    } catch {
+      toast.error("Failed to reach server.");
+    }
+    setStarting(false);
+  }
+
+  async function stopScrape() {
+    setStopping(true);
+    try {
+      const res = await fetch(`${API}/mobile_scraper/stop`, { method: "POST" });
+      if (res.ok) {
+        toast.success("Scrape stopped.");
+        await fetchStatus();
+      } else {
+        toast.error("Failed to stop scrape.");
+      }
+    } catch {
+      toast.error("Failed to reach server.");
+    }
+    setStopping(false);
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <section className="p-6 rounded-2xl ring-1 ring-brand/30 bg-card shadow-elegant space-y-4">
+        <div className="flex items-center gap-2">
+          <Smartphone className="size-4 text-brand" />
+          <h3 className="text-base font-semibold">Samsung S8 — Mobile Scraper</h3>
+          <span className={cn(
+            "ml-auto text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
+            connected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"
+          )}>
+            {connected ? "Connected" : "Disconnected"}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Runs jd_api_scraper.py directly on the S8 over SSH — the device does the scraping, this panel just starts, stops, and watches it.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">District</label>
+            <select
+              value={district}
+              onChange={e => setDistrict(e.target.value)}
+              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+            >
+              {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Category</label>
+            <input
+              type="text"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              placeholder="e.g. Hospitals"
+              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">Pages: {pages}</label>
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={pages}
+            onChange={e => setPages(Number(e.target.value))}
+            className="w-full accent-brand"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          {running ? (
+            <Button onClick={stopScrape} disabled={stopping} variant="outline"
+              className="flex-1 h-10 text-xs text-destructive border-destructive/40 hover:bg-destructive/10">
+              <Square className="size-3.5 mr-1.5" />{stopping ? "Stopping..." : "Stop"}
+            </Button>
+          ) : (
+            <Button onClick={startScrape} disabled={starting || !connected}
+              className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
+              <Play className="size-3.5 mr-1.5" />{starting ? "Starting..." : "Start Scrape"}
+            </Button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Records Saved</div>
+            <div className="text-xl font-bold text-brand mt-1">{stats.records_saved}</div>
+          </div>
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Duplicates Skipped</div>
+            <div className="text-xl font-bold mt-1">{stats.duplicates_skipped}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3 flex flex-col">
+        <div className="flex items-center gap-2">
+          <Activity className="size-4 text-brand" />
+          <h3 className="text-base font-semibold">Live Log</h3>
+          <span className="ml-auto text-[9px] text-muted-foreground">scrape.log · refreshes every 5s</span>
+        </div>
+        <div
+          ref={logRef}
+          className="flex-1 min-h-[320px] max-h-[420px] overflow-y-auto rounded-lg bg-background ring-1 ring-border p-3 font-mono text-[11px] whitespace-pre-wrap leading-relaxed"
+        >
+          {logText || "No log output yet."}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function GMapsPanel({ API, addLog, onDone }: {
   API: string;
   addLog: (ok: boolean, msg: string) => void;
