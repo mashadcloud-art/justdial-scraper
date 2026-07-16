@@ -10,19 +10,23 @@ class StartScrapeRequest(BaseModel):
     district: str
     category: str
     pages: int = 10
+    subcategories: bool = True
 
 
 @router.post("/api/v1/mobile_scraper/start")
 def start_mobile_scrape(request: StartScrapeRequest):
-    if not request.district or not request.category:
-        raise HTTPException(status_code=400, detail="district and category are required")
-    if not (1 <= request.pages <= 20):
-        raise HTTPException(status_code=400, detail="pages must be between 1 and 20")
+    if not request.category:
+        raise HTTPException(status_code=400, detail="category is required")
+    if not (1 <= request.pages <= 50):
+        raise HTTPException(status_code=400, detail="pages must be between 1 and 50")
 
-    result = service.start_scrape(request.district, request.category, request.pages)
+    result = service.start_scrape(
+        request.district, request.category, request.pages, request.subcategories
+    )
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to start scrape"))
-    return {"status": "started", "district": request.district, "category": request.category, "pages": request.pages}
+    return {"status": "started", "district": request.district, "category": request.category,
+            "pages": request.pages, "subcategories": request.subcategories}
 
 
 @router.post("/api/v1/mobile_scraper/stop")

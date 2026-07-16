@@ -11,7 +11,6 @@ from typing import Optional
 
 from app_config import CONFIG as APP_CONFIG
 
-REMOTE_SCRIPT_PATH = "~/justdial-scraper/jd_api_scraper.py"
 REMOTE_LOG_PATH = "~/scrape.log"
 PROCESS_PATTERN = "jd_api_scraper.py"
 
@@ -19,7 +18,8 @@ DEFAULT_MOBILE_DEVICE = {
     "host": "",
     "port": 8022,
     "username": "",
-    "key_path": "~/.ssh/id_rsa",
+    "key_path": "~/.ssh/id_ed25519",
+    "scraper_path": "~/justdial-scraper",
 }
 
 
@@ -28,7 +28,13 @@ def get_ssh_config() -> dict:
     return {**DEFAULT_MOBILE_DEVICE, **(mobile_cfg or {})}
 
 
-def _ssh_base_args(cfg: dict) -> list:
+def _remote_script_path(cfg: dict) -> str:
+    scraper_path = str(cfg.get("scraper_path") or DEFAULT_MOBILE_DEVICE["scraper_path"]).rstrip("/")
+    return f"{scraper_path}/jd_api_scraper.py"
+
+
+def _ssh_command_args(cfg: dict, remote_command: str) -> list:
+    """Build the ssh CLI invocation for reaching the device via key-based auth."""
     key_path = os.path.expanduser(str(cfg.get("key_path") or DEFAULT_MOBILE_DEVICE["key_path"]))
     return [
         "ssh",
@@ -39,6 +45,7 @@ def _ssh_base_args(cfg: dict) -> list:
         "-o", "ConnectTimeout=6",
         "-o", "BatchMode=yes",
         f"{cfg.get('username')}@{cfg.get('host')}",
+        remote_command,
     ]
 
 
@@ -48,7 +55,7 @@ def _run_ssh_command(remote_command: str, timeout: int = 15) -> dict:
     if not cfg.get("host") or not cfg.get("username"):
         return {"ok": False, "stdout": "", "stderr": "mobile_device.host/username not configured in config.yaml"}
 
-    args = _ssh_base_args(cfg) + [remote_command]
+    args = _ssh_command_args(cfg, remote_command)
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return {"ok": result.returncode == 0, "stdout": result.stdout, "stderr": result.stderr}
@@ -70,16 +77,37 @@ def is_running() -> bool:
     return result["ok"] and result["stdout"].strip() != ""
 
 
-def start_scrape(district: str, category: str, pages: int) -> dict:
+def start_scrape(district: str, category: str, pages: int, subcategories: bool = True) -> dict:
     if is_running():
         return {"ok": False, "error": "A scrape is already running on the device"}
 
-    safe_district = shlex.quote(district)
+    cfg = get_ssh_config()
     safe_category = shlex.quote(category)
-    remote_command = (
-        f"nohup python {REMOTE_SCRIPT_PATH} --district {safe_district} --category {safe_category} "
-        f"--pages {int(pages)} > {REMOTE_LOG_PATH} 2>&1 &"
-    )
+    scraper = _remote_script_path(cfg)
+
+    if district == "All":
+        # Scrape all Kerala districts one by one using a loop command
+        kerala_districts = [
+            "Thiruvananthapuram", "Kollam", "Pathanamthitta", "Alappuzha", "Kottayam",
+            "Idukki", "Ernakulam", "Thrissur", "Palakkad", "Malappuram",
+            "Kozhikode", "Wayanad", "Kannur", "Kasaragod"
+        ]
+        district_args = " ".join(shlex.quote(d) for d in kerala_districts)
+        subs_flag = "--subcategories" if subcategories else ""
+        remote_command = (
+            f"nohup bash -c 'for d in {district_args}; do "
+            f"python {scraper} --district \"$d\" --category {safe_category} "
+            f"--pages {int(pages)} {subs_flag}; done' "
+            f"> {REMOTE_LOG_PATH} 2>&1 &"
+        )
+    else:
+        safe_district = shlex.quote(district)
+        subs_flag = "--subcategories" if subcategories else ""
+        remote_command = (
+            f"nohup python {scraper} --district {safe_district} --category {safe_category} "
+            f"--pages {int(pages)} {subs_flag} > {REMOTE_LOG_PATH} 2>&1 &"
+        )
+
     result = _run_ssh_command(remote_command, timeout=15)
     if not result["ok"]:
         return {"ok": False, "error": result["stderr"] or "Failed to start scrape via SSH"}
@@ -93,9 +121,17 @@ def stop_scrape() -> dict:
 
 
 def parse_stats(log_text: str) -> dict:
-    """Best-effort scrape of running counters out of the scraper's own log lines."""
-    saved = len(re.findall(r"\bsaved\b", log_text, re.IGNORECASE))
-    duplicates = len(re.findall(r"\bduplicate", log_text, re.IGNORECASE))
+    """
+    Pull running counters out of jd_api_scraper.py's own summary lines, e.g.:
+      "Total new listings inserted: 3"
+      "Found 3 unique, skipped 1147 duplicates"
+    Falls back to counting keyword occurrences if those summary lines aren't present yet.
+    """
+    saved_matches = re.findall(r"listings inserted:\s*(\d+)", log_text, re.IGNORECASE)
+    duplicate_matches = re.findall(r"skipped\s+(\d+)\s+duplicates?", log_text, re.IGNORECASE)
+
+    saved = sum(int(n) for n in saved_matches) if saved_matches else len(re.findall(r"\bsaved\b", log_text, re.IGNORECASE))
+    duplicates = sum(int(n) for n in duplicate_matches) if duplicate_matches else len(re.findall(r"\bduplicate", log_text, re.IGNORECASE))
     return {"records_saved": saved, "duplicates_skipped": duplicates}
 
 
