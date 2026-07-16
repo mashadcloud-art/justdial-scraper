@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -28,6 +28,7 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
+  Pause,
   Play,
   RefreshCw,
   Search,
@@ -250,6 +251,7 @@ function ts() {
 /* ─── Dashboard ────────────────────────────────────────────── */
 function Dashboard() {
   const { theme, toggle } = useTheme();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("scraper");
   const [detailTabs, setDetailTabs] = useState<Business[]>([]);
   const [maximized, setMaximized] = useState(true);
@@ -257,6 +259,35 @@ function Dashboard() {
   // sidebar: collapsed by default (compact mode), expanded when maximized
   const sidebarCollapsed = !maximized;
   const [logModalOpen, setLogModalOpen] = useState(false);
+
+  // ── Logged-in user + Settings dialog ──
+  type LocalUser = { name: string; email: string; avatar: string; role: string };
+  const [currentUser, setCurrentUser] = useState<LocalUser | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("local_user");
+      if (raw) setCurrentUser(JSON.parse(raw));
+    } catch { /* ignore malformed value */ }
+  }, []);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInfo, setSettingsInfo] = useState<{ backend_type: string; backend_url: string; db_type: string; db_url: string } | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+
+  async function openSettings() {
+    setSettingsOpen(true);
+    setSettingsLoading(true);
+    try {
+      const res = await fetch(`${LOCAL_API}/setup/prefill`);
+      if (res.ok) setSettingsInfo(await res.json());
+    } catch { /* backend not ready yet */ }
+    finally { setSettingsLoading(false); }
+  }
+
+  function logOut() {
+    localStorage.removeItem("local_user");
+    navigate({ to: "/login" });
+  }
 
   // No auto-resize logic — layout is driven purely by maximize toggle
 
@@ -705,7 +736,8 @@ function Dashboard() {
     job_id: string;
     url: string;
     mode: string;
-    status: "pending" | "discovering" | "scraping" | "completed" | "failed";
+    status: "pending" | "discovering" | "scraping" | "completed" | "failed" | "stopped";
+    control?: "run" | "pause" | "stop";
     total_subcategories: number;
     completed_subcategories: number;
     total_found: number;
@@ -733,6 +765,18 @@ function Dashboard() {
   const [manualCatSubs, setManualCatSubs] = useState<string[]>([]);
   const [manualCatFetching, setManualCatFetching] = useState(false);
   const [manualCatStarting, setManualCatStarting] = useState(false);
+
+  // Global category sync: `category` (used by the Scraper / Cloud Direct / Web
+  // Scraper pickers) and Manual Category Scrape's field mirror each other, so
+  // picking a category anywhere updates it everywhere.
+  useEffect(() => {
+    setManualCatName(category);
+    setManualCatSubs([]);
+  }, [category]);
+
+  useEffect(() => {
+    if (manualCatName && manualCatName !== category) setCategory(manualCatName);
+  }, [manualCatName]);
   const [deepCategoryMap, setDeepCategoryMap] = useState<Record<string, CategoryMapEntry[]>>({});
   const [deepRecentJobs, setDeepRecentJobs] = useState<DeepScrapeJobSummary[]>([]);
   const deepPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -892,6 +936,16 @@ function Dashboard() {
     } catch { /* backend not ready yet */ }
   }
 
+  const [refreshingStats, setRefreshingStats] = useState(false);
+  async function refreshStats() {
+    setRefreshingStats(true);
+    try {
+      await fetchStats();
+    } finally {
+      setRefreshingStats(false);
+    }
+  }
+
   async function fetchCoverage() {
     try {
       setLoadingCoverage(true);
@@ -917,6 +971,27 @@ function Dashboard() {
     } catch { /* backend not ready yet */ }
   }
 
+  // Recent Jobs: collapsed by default, click a row to expand its details.
+  const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+  function toggleJobExpanded(jobId: string) {
+    setExpandedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId); else next.add(jobId);
+      return next;
+    });
+  }
+
+  async function deleteDeepScrapeJob(jobId: string) {
+    if (!confirm("Delete this job from Recent Jobs? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`${API}/deep-scrape/${jobId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.detail || "Failed to delete job"); return; }
+      toast.success("Job deleted");
+      setDeepRecentJobs((jobs) => jobs.filter((j) => j.job_id !== jobId));
+    } catch { toast.error("Network error"); }
+  }
+
   function pollDeepScrapeStatus(jobId: string) {
     if (deepPollRef.current) clearInterval(deepPollRef.current);
     deepPollRef.current = setInterval(async () => {
@@ -925,12 +1000,14 @@ function Dashboard() {
         if (res.ok) {
           const data: DeepScrapeJobStatus = await res.json();
           setDeepJob(data);
-          if (data.status === "completed" || data.status === "failed") {
+          if (data.status === "completed" || data.status === "failed" || data.status === "stopped") {
             if (deepPollRef.current) clearInterval(deepPollRef.current);
             deepPollRef.current = null;
             fetchRecentDeepScrapeJobs();
             if (data.status === "completed") {
               toast.success(`Deep Scrape complete — ${data.saved_to_db} new listings saved.`);
+            } else if (data.status === "stopped") {
+              toast.info("Deep Scrape stopped.");
             } else {
               toast.error(`Deep Scrape failed: ${data.current_subcategory || "Unknown error"}`);
             }
@@ -1132,6 +1209,39 @@ function Dashboard() {
     } finally {
       setDeepStarting(false);
     }
+  }
+
+  async function pauseDeepScrape() {
+    if (!deepJob) return;
+    try {
+      const res = await fetch(`${API}/deep-scrape/${deepJob.job_id}/pause`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.detail || "Failed to pause"); return; }
+      setDeepJob((j) => (j ? { ...j, control: "pause" } : j));
+      toast.info("Deep scrape paused — it will stop after the current subcategory finishes.");
+    } catch { toast.error("Network error"); }
+  }
+
+  async function resumeDeepScrape() {
+    if (!deepJob) return;
+    try {
+      const res = await fetch(`${API}/deep-scrape/${deepJob.job_id}/resume`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.detail || "Failed to resume"); return; }
+      setDeepJob((j) => (j ? { ...j, control: "run" } : j));
+      toast.success("Deep scrape resumed.");
+    } catch { toast.error("Network error"); }
+  }
+
+  async function stopDeepScrape() {
+    if (!deepJob) return;
+    try {
+      const res = await fetch(`${API}/deep-scrape/${deepJob.job_id}/stop`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.detail || "Failed to stop"); return; }
+      setDeepJob((j) => (j ? { ...j, control: "stop" } : j));
+      toast.info("Stopping deep scrape...");
+    } catch { toast.error("Network error"); }
   }
 
   function getImageUrl(p: string) {
@@ -1998,13 +2108,9 @@ function Dashboard() {
           {isTabActive("dashboard") && (
             <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => { setActiveTab("dashboard"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           )}
-          {isTabActive("coverage") && (
-            <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => { setActiveTab("coverage"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          )}
           {isTabActive("deep_scrape") && (
             <NavItem icon={<Layers className="size-4" />}        label="Deep Scrape"   active={activeTab === "deep_scrape"} onClick={() => { setActiveTab("deep_scrape"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           )}
-          <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           {isTabActive("export_history") && (
             <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           )}
@@ -2056,10 +2162,10 @@ function Dashboard() {
         {/* Collapsed — avatar + settings at bottom */}
         {sidebarCollapsed && (
           <div className="flex flex-col items-center gap-3 pb-4 pt-2 border-t border-white/10">
-            <button className="size-8 rounded-full bg-brand/20 flex items-center justify-center text-brand hover:bg-brand/30 transition-colors" title="Profile">
-              <span className="text-xs font-bold">A</span>
+            <button className="size-8 rounded-full bg-brand/20 flex items-center justify-center text-brand hover:bg-brand/30 transition-colors" title={currentUser?.name || "Guest"}>
+              <span className="text-xs font-bold">{(currentUser?.name || "G").charAt(0).toUpperCase()}</span>
             </button>
-            <button className="size-7 flex items-center justify-center text-white/40 hover:text-white/80 transition-colors" title="Settings">
+            <button onClick={openSettings} className="size-7 flex items-center justify-center text-white/40 hover:text-white/80 transition-colors" title="Settings">
               <Settings className="size-4" />
             </button>
           </div>
@@ -2106,7 +2212,7 @@ function Dashboard() {
             <button onClick={toggle} className="size-8 rounded-lg ring-1 ring-border bg-card flex items-center justify-center hover:bg-accent transition-colors" aria-label="Toggle theme">
               {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
             </button>
-            <button className="size-8 rounded-lg ring-1 ring-border bg-card flex items-center justify-center hover:bg-accent transition-colors">
+            <button onClick={openSettings} title="Settings" className="size-8 rounded-lg ring-1 ring-border bg-card flex items-center justify-center hover:bg-accent transition-colors">
               <Settings className="size-3.5" />
             </button>
             {/* Maximize / Restore button */}
@@ -2135,7 +2241,7 @@ function Dashboard() {
               <AppWindow className="size-3.5" />
             </button>
             <div className="h-8 px-2.5 rounded-lg text-white text-xs font-medium flex items-center shadow-brand" style={{ background: "var(--gradient-brand)" }}>
-              Alex R.
+              {currentUser?.name || "Guest"}
             </div>
           </div>
         </header>
@@ -2148,18 +2254,18 @@ function Dashboard() {
             {maximized ? (
               /* Maximized: Responsive grid */
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCardLg label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-4" />} live />
-                <StatCardLg label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-4" />} onClick={openTodayBreakdown} />
-                <StatCardLg label="Images Collected" value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-4" />} />
-                <StatCardLg label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-4" />} />
+                <StatCardLg label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-4" />} live onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCardLg label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-4" />} onClick={openTodayBreakdown} onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCardLg label="Images Collected" value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-4" />} onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCardLg label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-4" />} onRefresh={refreshStats} refreshing={refreshingStats} />
               </div>
             ) : (
               /* Default: Responsive horizontal row */
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                <StatCard label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-3.5" />} live />
-                <StatCard label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-3.5" />} onClick={openTodayBreakdown} />
-                <StatCard label="Images"           value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-3.5" />} />
-                <StatCard label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-3.5" />} />
+                <StatCard label="Total Businesses" value={statsTotal.toLocaleString()} trend="+12% this hour" icon={<Database className="size-3.5" />} live onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCard label="Scraped Today"    value={totalScraped.toLocaleString()} trend={running ? "In progress..." : "Ready"} icon={<Zap className="size-3.5" />} onClick={openTodayBreakdown} onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCard label="Images"           value={(statsImages/1000).toFixed(1)+"k"} trend="Stored locally" icon={<ImageIcon className="size-3.5" />} onRefresh={refreshStats} refreshing={refreshingStats} />
+                <StatCard label="Success Rate"     value="99.4%" trend="142 req/min" icon={<Gauge className="size-3.5" />} onRefresh={refreshStats} refreshing={refreshingStats} />
               </div>
             )}
 
@@ -3841,11 +3947,36 @@ function Dashboard() {
                         variant="outline" className="flex-1 h-10 text-xs">
                         {manualCatFetching ? <><Loader2 className="size-3.5 animate-spin mr-1.5" />Fetching...</> : "🔍 Fetch Subcategories"}
                       </Button>
-                      <Button onClick={startManualCatScrape}
-                        disabled={manualCatStarting || (!!deepJob && ["pending","discovering","scraping"].includes(deepJob.status))}
-                        className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
-                        {manualCatStarting ? "Starting..." : "▶ Start Scrape"}
-                      </Button>
+                      {deepJob && DEEP_SCRAPE_ACTIVE_STATUSES.includes(deepJob.status) ? (
+                        deepJob.control === "pause" ? (
+                          <>
+                            <Button onClick={resumeDeepScrape}
+                              className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
+                              <Play className="size-3.5 mr-1.5" />Resume
+                            </Button>
+                            <Button onClick={stopDeepScrape} variant="outline"
+                              className="flex-1 h-10 text-xs text-destructive border-destructive/40 hover:bg-destructive/10">
+                              <Square className="size-3.5 mr-1.5" />Stop
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button onClick={pauseDeepScrape} variant="outline" className="flex-1 h-10 text-xs">
+                              <Pause className="size-3.5 mr-1.5" />Pause
+                            </Button>
+                            <Button onClick={stopDeepScrape} variant="outline"
+                              className="flex-1 h-10 text-xs text-destructive border-destructive/40 hover:bg-destructive/10">
+                              <Square className="size-3.5 mr-1.5" />Stop
+                            </Button>
+                          </>
+                        )
+                      ) : (
+                        <Button onClick={startManualCatScrape}
+                          disabled={manualCatStarting}
+                          className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
+                          {manualCatStarting ? "Starting..." : "▶ Start Scrape"}
+                        </Button>
+                      )}
                     </div>
                   </section>
 
@@ -4040,26 +4171,54 @@ function Dashboard() {
                       <p className="text-xs text-muted-foreground text-center py-4">No jobs yet.</p>
                     ) : (
                       <div className="space-y-2">
-                        {deepRecentJobs.map((job) => (
-                          <div key={job.job_id} className="bg-background rounded-lg ring-1 ring-border p-2.5 flex items-center gap-3 text-xs">
-                            <span
-                              className={cn(
-                                "shrink-0 font-semibold px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wide",
-                                job.status === "completed" && "bg-emerald-500/10 text-emerald-500",
-                                job.status === "failed" && "bg-red-500/10 text-red-500",
-                                DEEP_SCRAPE_ACTIVE_STATUSES.includes(job.status) && "bg-brand/10 text-brand"
+                        {deepRecentJobs.map((job) => {
+                          const isExpanded = expandedJobIds.has(job.job_id);
+                          return (
+                            <div key={job.job_id} className="bg-background rounded-lg ring-1 ring-border text-xs overflow-hidden">
+                              <div
+                                className="p-2.5 flex items-center gap-3 cursor-pointer hover:bg-accent/40"
+                                onClick={() => toggleJobExpanded(job.job_id)}
+                              >
+                                <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", isExpanded && "rotate-90")} />
+                                <span
+                                  className={cn(
+                                    "shrink-0 font-semibold px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wide",
+                                    job.status === "completed" && "bg-emerald-500/10 text-emerald-500",
+                                    job.status === "failed" && "bg-red-500/10 text-red-500",
+                                    job.status === "stopped" && "bg-muted text-muted-foreground",
+                                    DEEP_SCRAPE_ACTIVE_STATUSES.includes(job.status) && "bg-brand/10 text-brand"
+                                  )}
+                                >
+                                  {job.status}
+                                </span>
+                                <span className="truncate flex-1 text-muted-foreground" title={job.url}>
+                                  {job.mode === "state" ? "State" : "District"} · {job.url.replace("https://www.justdial.com/", "")}
+                                </span>
+                                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                                  {job.saved_to_db} saved
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); deleteDeepScrapeJob(job.job_id); }}
+                                  title="Delete job"
+                                  className="shrink-0 size-5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                              </div>
+                              {isExpanded && (
+                                <div className="px-2.5 pb-2.5 pt-1 border-t border-border grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                                  <div><span className="font-semibold text-foreground">Job ID:</span> {job.job_id}</div>
+                                  <div><span className="font-semibold text-foreground">Subcategories:</span> {job.completed_subcategories}/{job.total_subcategories}</div>
+                                  <div><span className="font-semibold text-foreground">Total found:</span> {job.total_found}</div>
+                                  <div><span className="font-semibold text-foreground">Duplicates:</span> {job.duplicates_skipped}</div>
+                                  <div><span className="font-semibold text-foreground">Created:</span> {new Date(job.created_at).toLocaleString()}</div>
+                                  <div><span className="font-semibold text-foreground">Updated:</span> {new Date(job.updated_at).toLocaleString()}</div>
+                                </div>
                               )}
-                            >
-                              {job.status}
-                            </span>
-                            <span className="truncate flex-1 text-muted-foreground" title={job.url}>
-                              {job.mode === "state" ? "State" : "District"} · {job.url.replace("https://www.justdial.com/", "")}
-                            </span>
-                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                              {job.saved_to_db} saved
-                            </span>
-                          </div>
-                        ))}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </section>
@@ -4563,6 +4722,55 @@ function Dashboard() {
         </div>
       )}
 
+      {/* Settings dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="size-12 rounded-full bg-brand/10 text-brand flex items-center justify-center mb-2"><Settings className="size-5" /></div>
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>Account, backend, and database configuration.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="rounded-lg ring-1 ring-border bg-muted/20 p-3 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Account</p>
+              <p className="text-sm font-semibold">{currentUser?.name || "Guest"}</p>
+              <p className="text-xs text-muted-foreground">{currentUser?.role || "unauthenticated"}</p>
+            </div>
+
+            <div className="rounded-lg ring-1 ring-border bg-muted/20 p-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Theme</p>
+                <button onClick={toggle} className="h-7 px-2 rounded-md ring-1 ring-border bg-card text-xs flex items-center gap-1.5 hover:bg-accent transition-colors">
+                  {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg ring-1 ring-border bg-muted/20 p-3 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Backend & Database</p>
+              {settingsLoading ? (
+                <p className="text-xs text-muted-foreground">Loading...</p>
+              ) : settingsInfo ? (
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Backend</span><span className="font-mono">{settingsInfo.backend_type} · {settingsInfo.backend_url}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Database</span><span className="font-mono">{settingsInfo.db_type}</span></div>
+                  {settingsInfo.db_url && <div className="flex justify-between gap-2"><span className="text-muted-foreground shrink-0">DB URL</span><span className="font-mono truncate" title={settingsInfo.db_url}>{settingsInfo.db_url}</span></div>}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Could not load backend configuration.</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={logOut}>Log out</Button>
+            <Button onClick={() => setSettingsOpen(false)} className="text-white" style={{ background: "var(--gradient-brand)" }}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete dialog */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
@@ -5056,9 +5264,9 @@ function NavItem({ icon, label, active, onClick, collapsed, dark }: {
   );
 }
 
-function StatCard({ label, value, trend, icon, live, onClick }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void }) {
+function StatCard({ label, value, trend, icon, live, onClick, onRefresh, refreshing }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void; onRefresh?: () => void; refreshing?: boolean }) {
   return (
-    <div 
+    <div
       onClick={onClick}
       className={cn(
         "p-3 rounded-xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all",
@@ -5067,7 +5275,19 @@ function StatCard({ label, value, trend, icon, live, onClick }: { label: string;
     >
       <div className="flex items-start justify-between mb-1.5">
         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest leading-tight">{label}</span>
-        <div className="size-5 rounded-md bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>
+        <div className="flex items-center gap-1 shrink-0">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+              title={`Refresh ${label}`}
+              className="size-5 rounded-md text-muted-foreground hover:text-brand hover:bg-brand/10 flex items-center justify-center transition-colors"
+            >
+              <RefreshCw className={cn("size-3", refreshing && "animate-spin")} />
+            </button>
+          )}
+          <div className="size-5 rounded-md bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>
+        </div>
       </div>
       <div className="text-lg font-semibold tracking-tight">{value}</div>
       <div className="flex items-center gap-1 mt-1">
@@ -5078,9 +5298,9 @@ function StatCard({ label, value, trend, icon, live, onClick }: { label: string;
   );
 }
 
-function StatCardLg({ label, value, trend, icon, live, onClick }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void }) {
+function StatCardLg({ label, value, trend, icon, live, onClick, onRefresh, refreshing }: { label: string; value: string; trend: string; icon: React.ReactNode; live?: boolean; onClick?: () => void; onRefresh?: () => void; refreshing?: boolean }) {
   return (
-    <div 
+    <div
       onClick={onClick}
       className={cn(
         "p-5 rounded-2xl ring-1 ring-border bg-card shadow-elegant hover:ring-brand/30 transition-all",
@@ -5089,7 +5309,19 @@ function StatCardLg({ label, value, trend, icon, live, onClick }: { label: strin
     >
       <div className="flex items-start justify-between mb-3">
         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</span>
-        <div className="size-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+              title={`Refresh ${label}`}
+              className="size-6 rounded-md text-muted-foreground hover:text-brand hover:bg-brand/10 flex items-center justify-center transition-colors"
+            >
+              <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            </button>
+          )}
+          <div className="size-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">{icon}</div>
+        </div>
       </div>
       <div className="text-3xl font-semibold tracking-tight">{value}</div>
       <div className="flex items-center gap-1.5 mt-2">

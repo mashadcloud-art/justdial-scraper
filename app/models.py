@@ -281,7 +281,8 @@ class DeepScrapeJob(Base):
     job_id = Column(String(50), unique=True, index=True, nullable=False)
     url = Column(String(1000), nullable=False)
     mode = Column(String(20), nullable=False)  # "district" or "state"
-    status = Column(String(30), default="pending")  # pending, discovering, scraping, completed, failed
+    status = Column(String(30), default="pending")  # pending, discovering, scraping, completed, failed, stopped
+    control = Column(String(20), default="run")  # run, pause, stop — checked by the worker thread between subcategories
     total_subcategories = Column(Integer, default=0)
     completed_subcategories = Column(Integer, default=0)
     total_found = Column(Integer, default=0)

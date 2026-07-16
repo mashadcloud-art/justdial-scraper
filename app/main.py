@@ -31,6 +31,13 @@ def init_db():
     except Exception:
         pass  # column already exists (or table not created yet) — safe to ignore
 
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE scrape_jobs ADD COLUMN control VARCHAR(20) DEFAULT 'run'"))
+        print("[DB] Added scrape_jobs.control column.")
+    except Exception:
+        pass  # column already exists (or table not created yet) — safe to ignore
+
 threading.Thread(target=init_db, daemon=True).start()
 
 app = FastAPI(title="JustDial Desktop Scraper API")

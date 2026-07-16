@@ -53,6 +53,40 @@ def get_latest_deep_scrape_status(db: Session = Depends(get_db)):
     return {"job": service.serialize_job(job, include_log=True)}
 
 
+@router.post("/api/v1/deep-scrape/{job_id}/pause")
+def pause_deep_scrape(job_id: str, db: Session = Depends(get_db)):
+    try:
+        return service.set_control(db, job_id, "pause")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+
+@router.post("/api/v1/deep-scrape/{job_id}/resume")
+def resume_deep_scrape(job_id: str, db: Session = Depends(get_db)):
+    try:
+        return service.set_control(db, job_id, "run")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+
+@router.post("/api/v1/deep-scrape/{job_id}/stop")
+def stop_deep_scrape(job_id: str, db: Session = Depends(get_db)):
+    try:
+        return service.set_control(db, job_id, "stop")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+
+@router.delete("/api/v1/deep-scrape/{job_id}")
+def delete_deep_scrape_job(job_id: str, db: Session = Depends(get_db)):
+    try:
+        return service.delete_job(db, job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/api/v1/deep-scrape/recent")
 def get_recent_deep_scrape_jobs(limit: int = 5, db: Session = Depends(get_db)):
     """Last N deep-scrape jobs (any status), newest first, for the Recent Jobs list."""

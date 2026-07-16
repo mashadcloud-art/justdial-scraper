@@ -38,6 +38,7 @@ def serialize_job(job, include_log: bool = False) -> dict:
         "url": job.url,
         "mode": job.mode,
         "status": job.status,
+        "control": job.control or "run",
         "total_subcategories": job.total_subcategories,
         "completed_subcategories": job.completed_subcategories,
         "total_found": job.total_found,
@@ -53,3 +54,27 @@ def serialize_job(job, include_log: bool = False) -> dict:
         except Exception:
             data["log_tail"] = []
     return data
+
+
+def delete_job(db, job_id: str) -> dict:
+    job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
+    if job is None:
+        raise KeyError(job_id)
+    if job.status in ("pending", "discovering", "scraping") and job.control != "stop":
+        raise ValueError("Stop the job before deleting it")
+    db.delete(job)
+    db.commit()
+    return {"status": "deleted", "job_id": job_id}
+
+
+def set_control(db, job_id: str, control: str) -> dict:
+    """Signal the running worker thread to pause/resume/stop at its next per-subcategory checkpoint."""
+    job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
+    if job is None:
+        raise KeyError(job_id)
+    job.control = control
+    if control == "stop" and job.status in ("pending", "discovering"):
+        # Nothing is between subcategories yet to catch the flag — stop immediately.
+        job.status = "stopped"
+    db.commit()
+    return serialize_job(job)

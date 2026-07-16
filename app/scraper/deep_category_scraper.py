@@ -17,6 +17,7 @@ poll job status.
 """
 import json as _json
 import re
+import time
 from datetime import datetime
 
 from app.database import SessionLocal
@@ -142,6 +143,22 @@ def _update_job(db, job_id: str, **fields):
         setattr(job, key, value)
     db.commit()
     return job
+
+
+def _checkpoint(db, job_id: str) -> bool:
+    """
+    Called between subcategories. Blocks while the job is paused (re-checking every second),
+    and returns True once the job should stop entirely (control == "stop").
+    """
+    while True:
+        job = db.query(models.DeepScrapeJob).filter(models.DeepScrapeJob.job_id == job_id).first()
+        if not job:
+            return True
+        if job.control == "stop":
+            return True
+        if job.control != "pause":
+            return False
+        time.sleep(1)
 
 
 def _log(db, job_id: str, message: str):
@@ -290,7 +307,12 @@ def run_deep_scrape_job(job_id: str, url: str, mode: str, manual_subcategories: 
         seen_phones: set = set()
         stats = {"processed": 0, "saved": 0, "updated": 0, "skipped": 0}
 
+        stopped = False
         for city, subcat_name in work_items:
+            if _checkpoint(db, job_id):
+                stopped = True
+                break
+
             label = subcat_name if mode == "district" else f"{subcat_name} ({city})"
             _update_job(db, job_id, current_subcategory=label)
             _log(db, job_id, f"Scraping '{label}'...")
@@ -321,11 +343,15 @@ def run_deep_scrape_job(job_id: str, url: str, mode: str, manual_subcategories: 
                 job.duplicates_skipped += updated
                 db.commit()
 
-        _log(db, job_id, (
-            f"Job complete. Skipped {stats['skipped']} duplicates, Saved {stats['saved']} unique, "
-            f"Updated {stats['updated']} existing." if mode == "district" and district_places else "Job complete."
-        ))
-        _update_job(db, job_id, status="completed", current_subcategory=None)
+        if stopped:
+            _log(db, job_id, "Job stopped by user.")
+            _update_job(db, job_id, status="stopped", current_subcategory=None)
+        else:
+            _log(db, job_id, (
+                f"Job complete. Skipped {stats['skipped']} duplicates, Saved {stats['saved']} unique, "
+                f"Updated {stats['updated']} existing." if mode == "district" and district_places else "Job complete."
+            ))
+            _update_job(db, job_id, status="completed", current_subcategory=None)
     except Exception as e:
         _log(db, job_id, f"Job failed: {e}")
         try:
