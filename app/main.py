@@ -63,7 +63,7 @@ async def add_security_headers(request: Request, call_next):
 # Each module owns its own router.py + service.py + manifest.json. Removing a
 # name from this list (or a bug inside that module's router) only drops that
 # module's endpoints — the others keep working.
-MODULE_NAMES = ["auth", "scraper", "deep_scrape", "dashboard", "export"]
+MODULE_NAMES = ["auth", "scraper", "deep_scrape", "dashboard", "export", "module_store"]
 
 def _register_modules(app: FastAPI):
     modules_dir = os.path.join(os.path.dirname(__file__), "modules")

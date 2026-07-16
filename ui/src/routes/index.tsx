@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Minimize2,
   Moon,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -45,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import ListingsManager from "@/components/ListingsManager";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -88,7 +90,28 @@ type Business = {
   professionals?: { name: string; achievement: string; tags: string; image_url?: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | "module_store" | { type: "detail"; business: Business };
+
+type ModuleInfo = {
+  name: string;
+  version: string;
+  description: string;
+  prefix: string;
+  core: boolean;
+  enabled: boolean;
+  installed: boolean;
+  active: boolean;
+};
+
+// Maps sidebar tabs to the backend module that must be active for them to show.
+// Tabs not listed here (e.g. Module Store itself) are always shown.
+const TAB_MODULE: Record<string, string> = {
+  scraper: "scraper",
+  dashboard: "dashboard",
+  coverage: "dashboard",
+  deep_scrape: "deep_scrape",
+  export_history: "export",
+};
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
 
@@ -572,6 +595,87 @@ function Dashboard() {
 
   const API = "/api/v1";
   const LOCAL_API = "/api/v1";
+
+  // ── Module Store: drives which sidebar tabs are shown ──
+  const [modules, setModules] = useState<ModuleInfo[]>([]);
+  const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [moduleActionPending, setModuleActionPending] = useState<string | null>(null);
+
+  async function fetchModules() {
+    try {
+      const res = await fetch(`${API}/modules`);
+      if (res.ok) {
+        const data = await res.json();
+        setModules(data);
+        setModulesLoaded(true);
+      }
+    } catch { /* ignore — keep last known list */ }
+  }
+
+  useEffect(() => {
+    fetchModules();
+    const interval = setInterval(fetchModules, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // A tab not mapped to a module (e.g. Module Store itself) is always shown.
+  // Until the first fetch resolves, fail open so the sidebar isn't empty.
+  function isTabActive(tab: string) {
+    const moduleName = TAB_MODULE[tab];
+    if (!moduleName) return true;
+    if (!modulesLoaded) return true;
+    const mod = modules.find((m) => m.name === moduleName);
+    return mod ? mod.active : true;
+  }
+
+  // If the tab currently open gets disabled/uninstalled elsewhere, hop to a still-active one.
+  useEffect(() => {
+    if (!modulesLoaded) return;
+    if (typeof activeTab !== "string") return;
+    if (isTabActive(activeTab)) return;
+    const fallback = (["scraper", "dashboard", "coverage", "deep_scrape"] as const).find((t) => isTabActive(t));
+    setActiveTab(fallback ?? "module_store");
+  }, [modules, modulesLoaded]);
+
+  async function setModuleEnabled(name: string, enabled: boolean) {
+    setModuleActionPending(name);
+    try {
+      const res = await fetch(`${API}/modules/${encodeURIComponent(name)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) {
+        toast.success(enabled ? `${name} enabled` : `${name} disabled`);
+        await fetchModules();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || "Failed to update module.");
+      }
+    } catch {
+      toast.error("Failed to reach server.");
+    }
+    setModuleActionPending(null);
+  }
+
+  async function setModuleInstalled(name: string, installed: boolean) {
+    setModuleActionPending(name);
+    try {
+      const res = await fetch(`${API}/modules/${encodeURIComponent(name)}/${installed ? "install" : "uninstall"}`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        toast.success(installed ? `${name} installed` : `${name} uninstalled`);
+        await fetchModules();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || "Failed to update module.");
+      }
+    } catch {
+      toast.error("Failed to reach server.");
+    }
+    setModuleActionPending(null);
+  }
 
   // Results
   const [rows, setRows] = useState<Business[]>([]);
@@ -1888,12 +1992,23 @@ function Dashboard() {
 
         {/* Nav items */}
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => { setActiveTab("scraper"); setMobileSidebarOpen(false); }}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => { setActiveTab("dashboard"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => { setActiveTab("coverage"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<Layers className="size-4" />}        label="Deep Scrape"   active={activeTab === "deep_scrape"} onClick={() => { setActiveTab("deep_scrape"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          {isTabActive("scraper") && (
+            <NavItem icon={<Zap className="size-4" />}           label="Scraper"         active={activeTab === "scraper"}   onClick={() => { setActiveTab("scraper"); setMobileSidebarOpen(false); }}   collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
+          {isTabActive("dashboard") && (
+            <NavItem icon={<LayoutDashboard className="size-4" />} label="Dashboard"     active={activeTab === "dashboard"} onClick={() => { setActiveTab("dashboard"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
+          {isTabActive("coverage") && (
+            <NavItem icon={<BarChart className="size-4" />}       label="Coverage"      active={activeTab === "coverage"}  onClick={() => { setActiveTab("coverage"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
+          {isTabActive("deep_scrape") && (
+            <NavItem icon={<Layers className="size-4" />}        label="Deep Scrape"   active={activeTab === "deep_scrape"} onClick={() => { setActiveTab("deep_scrape"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
           <NavItem icon={<Database className="size-4" />}      label="Proxy Manager"                                                                                collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
-          <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          {isTabActive("export_history") && (
+            <NavItem icon={<Download className="size-4" />}      label="Export History"                                                                               collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
+          <NavItem icon={<Package className="size-4" />}        label="Module Store"  active={activeTab === "module_store"} onClick={() => { setActiveTab("module_store"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
           {/* Open record tabs — only in expanded mode */}
           {detailTabs.length > 0 && !sidebarCollapsed && (
@@ -1980,7 +2095,7 @@ function Dashboard() {
             </button>
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : activeTab === "module_store" ? "Module Store" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -4156,6 +4271,67 @@ function Dashboard() {
                   </div>
                 </section>
               )
+            )}
+
+            {/* ── MODULE STORE TAB ── */}
+            {activeTab === "module_store" && (
+              <section className="rounded-xl ring-1 ring-border bg-card overflow-hidden shadow-elegant">
+                <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">Module Store</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Enable, disable, or uninstall feature modules. Sidebar tabs update instantly — no refresh needed.</p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={fetchModules} className="gap-1.5">
+                    <RefreshCw className="size-3.5" /> Refresh
+                  </Button>
+                </div>
+                <div className="divide-y divide-border">
+                  {!modulesLoaded && (
+                    <div className="p-8 text-center text-sm text-muted-foreground">Loading modules…</div>
+                  )}
+                  {modulesLoaded && modules.length === 0 && (
+                    <div className="p-8 text-center text-sm text-muted-foreground">No modules found.</div>
+                  )}
+                  {modules.map((mod) => (
+                    <div key={mod.name} className="p-4 flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold capitalize truncate">{mod.name.replace(/_/g, " ")}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">v{mod.version}</span>
+                          {mod.core && (
+                            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-brand/10 text-brand">Core</span>
+                          )}
+                          {!mod.installed ? (
+                            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Uninstalled</span>
+                          ) : !mod.enabled ? (
+                            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">Disabled</span>
+                          ) : (
+                            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600">Active</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 truncate">{mod.description}</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Switch
+                          checked={mod.enabled}
+                          disabled={mod.core || !mod.installed || moduleActionPending === mod.name}
+                          onCheckedChange={(checked) => setModuleEnabled(mod.name, checked)}
+                          title={mod.core ? "Core modules cannot be disabled" : mod.enabled ? "Disable module" : "Enable module"}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={mod.core || moduleActionPending === mod.name}
+                          onClick={() => setModuleInstalled(mod.name, !mod.installed)}
+                          className={cn(!mod.installed && "text-brand")}
+                        >
+                          {mod.installed ? "Uninstall" : "Reinstall"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
 
             {/* ── GOOGLE MAPS TAB ── */}

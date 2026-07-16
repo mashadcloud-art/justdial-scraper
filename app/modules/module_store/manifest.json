@@ -1,0 +1,7 @@
+{
+  "name": "module_store",
+  "version": "1.0.0",
+  "description": "Manages feature modules — list, enable/disable, uninstall, and install new modules from a ZIP upload.",
+  "prefix": "/api/v1/modules",
+  "core": true
+}
