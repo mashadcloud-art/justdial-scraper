@@ -10,9 +10,14 @@ class Settings(BaseSettings):
     # Base data folder (all other paths are relative to this)
     DATA_FOLDER: str = DATA_FOLDER
     
-    # Database connection (use app_config if set, else default SQLite)
+    # Lowercase field for Pydantic to load from environment or .env file
+    database_url: str | None = None
+    
+    # Database connection (use environment override, app_config, or default SQLite)
     @property
     def DATABASE_URL(self) -> str:
+        if self.database_url:
+            return self.database_url
         if APP_CONFIG["database"]["url"]:
             return APP_CONFIG["database"]["url"]
         # Default SQLite DB in data folder
@@ -28,5 +33,6 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()
