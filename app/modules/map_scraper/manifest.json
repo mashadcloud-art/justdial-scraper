@@ -4,5 +4,5 @@
   "description": "Trigger Google Maps scrapes on the Map Scraper service (thozil server) and sync results to Supabase",
   "author": "Scapre",
   "prefix": "/api/v1/map_scraper",
-  "routes": 5
+  "routes": 12
 }
