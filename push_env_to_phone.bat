@@ -8,8 +8,8 @@ set LOCAL_ENV=temp_env_file.env
 set ADB_PATH=platform-tools\adb.exe
 
 :: Create the .env file locally on PC with both cases to ensure Pydantic reads it
-echo database_url=postgresql://postgres:HEERnuh%%402025@db.qdsjbfhjzyypfyryjqxp.supabase.co:5432/postgres > "%LOCAL_ENV%"
-echo DATABASE_URL=postgresql://postgres:HEERnuh%%402025@db.qdsjbfhjzyypfyryjqxp.supabase.co:5432/postgres >> "%LOCAL_ENV%"
+echo database_url=postgresql://postgres.qdsjbfhjzyypfyryjqxp:HEERnuh%%402025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres > "%LOCAL_ENV%"
+echo DATABASE_URL=postgresql://postgres.qdsjbfhjzyypfyryjqxp:HEERnuh%%402025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres >> "%LOCAL_ENV%"
 
 echo Pushing .env configuration to S8 storage...
 %ADB_PATH% -d push "%LOCAL_ENV%" /sdcard/.env

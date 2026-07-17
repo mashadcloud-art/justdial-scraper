@@ -794,20 +794,29 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     log(f"  Mode:      {'DRY RUN' if dry_run else 'LIVE (saving to DB)'}")
     log("=" * 60)
 
-    from app.scraper.constants import get_areas_for_district
-    areas = get_areas_for_district(district)
-    
-    if areas and len(areas) > 1:
-        targets = areas
-        use_area_query = True
+    pincodes = get_pincodes_for_district(district)
+    if pincodes:
+        targets = pincodes
+        use_area_query = False
     else:
-        pincodes = get_pincodes_for_district(district)
-        if pincodes:
-            targets = pincodes
-            use_area_query = False
+        from app.scraper.constants import get_areas_for_district
+        areas = get_areas_for_district(district)
+        if areas and len(areas) > 1:
+            targets = areas
+            use_area_query = True
         else:
             targets = [district]
             use_area_query = False
+
+    # Smart page allocation: main city gets full pages, smaller areas get fewer
+    # First target = main city/district name → full pages
+    # Rest = smaller towns/pincodes → max 3-4 pages (enough to get unique results)
+    def get_pages_for_target(target: str, idx: int) -> int:
+        if idx == 0:
+            return pages  # main city gets full pages
+        return min(pages, 4)  # smaller areas: max 4 pages
+
+    log(f"  Areas: {len(targets)} targets — main city ({targets[0]}) gets {pages} pages, others get max 4")
 
     existing_phones = set()
     existing_names_districts = set()
@@ -851,12 +860,13 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [
             scrape_target_async(
-                session, semaphore, target, district, category, limit, pages,
+                session, semaphore, target, district, category, limit,
+                get_pages_for_target(target, idx),  # smart page allocation
                 use_area_query, dry_run, existing_phones, existing_names_districts,
                 checkpoint, checkpoint_path, flag_path, use_proxy,
                 seen_ids=seen_ids, stats=stats
             )
-            for target in targets
+            for idx, target in enumerate(targets)
         ]
 
         results = await asyncio.gather(*tasks)
@@ -994,23 +1004,22 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
     log(f"  Mode:      {'DRY RUN' if dry_run else 'LIVE (saving to DB)'}")
     log("=" * 60)
 
-    # Fetch areas for district first (more effective for JustDial search query filtering)
-    from app.scraper.constants import get_areas_for_district
-    areas = get_areas_for_district(district)
-    
-    if areas and len(areas) > 1:
-        log(f"[INFO] Found {len(areas)} local areas for district '{district}':")
-        log(f"   {', '.join(areas)}")
-        targets = areas
-        use_area_query = True
+    # Fetch pincodes first for deeper coverage
+    pincodes = get_pincodes_for_district(district)
+    if pincodes:
+        log(f"[INFO] Found {len(pincodes)} pincodes for district '{district}':")
+        log(f"   {', '.join(pincodes)}")
+        targets = pincodes
+        use_area_query = False
     else:
-        # Fallback to pincodes
-        pincodes = get_pincodes_for_district(district)
-        if pincodes:
-            log(f"[INFO] Found {len(pincodes)} pincodes for district '{district}':")
-            log(f"   {', '.join(pincodes)}")
-            targets = pincodes
-            use_area_query = False
+        # Fallback to local areas list
+        from app.scraper.constants import get_areas_for_district
+        areas = get_areas_for_district(district)
+        if areas and len(areas) > 1:
+            log(f"[INFO] Found {len(areas)} local areas for district '{district}':")
+            log(f"   {', '.join(areas)}")
+            targets = areas
+            use_area_query = True
         else:
             log(f"[WARN] No areas or pincodes found for '{district}'. Falling back to direct district search.")
             targets = [district]

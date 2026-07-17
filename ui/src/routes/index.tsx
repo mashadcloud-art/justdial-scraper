@@ -5601,8 +5601,9 @@ function Lightbox({ data, onChange, onClose }: { data: { images: string[]; index
 function MobileScraperPanel({ API }: { API: string }) {
   const KERALA_DISTRICTS = CITIES["Kerala"] || [];
 
-  const [district, setDistrict] = useState(KERALA_DISTRICTS[0] || "");
+  const [district, setDistrict] = useState("All");
   const [category, setCategory] = useState("");
+  const [subcategories, setSubcategories] = useState(true);
   const [pages, setPages] = useState(10);
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
@@ -5646,8 +5647,8 @@ function MobileScraperPanel({ API }: { API: string }) {
   useEffect(() => {
     fetchStatus();
     fetchLog();
-    const statusInterval = setInterval(fetchStatus, 5000);
-    const logInterval = setInterval(fetchLog, 5000);
+    const statusInterval = setInterval(fetchStatus, 8000);
+    const logInterval = setInterval(fetchLog, 8000);
     return () => {
       clearInterval(statusInterval);
       clearInterval(logInterval);
@@ -5659,8 +5660,8 @@ function MobileScraperPanel({ API }: { API: string }) {
   }, [logText]);
 
   async function startScrape() {
-    if (!district.trim() || !category.trim()) {
-      toast.error("District and category are required.");
+    if (!category.trim()) {
+      toast.error("Category is required.");
       return;
     }
     setStarting(true);
@@ -5668,10 +5669,10 @@ function MobileScraperPanel({ API }: { API: string }) {
       const res = await fetch(`${API}/mobile_scraper/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ district, category, pages }),
+        body: JSON.stringify({ district: district || "All", category, pages, subcategories }),
       });
       if (res.ok) {
-        toast.success("Scrape started on S8.");
+        toast.success(`Scrape started on S8${district === "All" ? " (all Kerala districts)" : ` — ${district}`}.`);
         await fetchStatus();
       } else {
         const err = await res.json().catch(() => null);
@@ -5724,6 +5725,7 @@ function MobileScraperPanel({ API }: { API: string }) {
               onChange={e => setDistrict(e.target.value)}
               className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
             >
+              <option value="All">🌍 All Kerala Districts</option>
               {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
@@ -5733,22 +5735,32 @@ function MobileScraperPanel({ API }: { API: string }) {
               type="text"
               value={category}
               onChange={e => setCategory(e.target.value)}
-              placeholder="e.g. Hospitals"
+              placeholder="e.g. Hospitals, Doctors"
               className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
             />
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Pages: {pages}</label>
-          <input
-            type="range"
-            min={1}
-            max={20}
-            value={pages}
-            onChange={e => setPages(Number(e.target.value))}
-            className="w-full accent-brand"
-          />
+        <div className="flex items-center gap-3">
+          <div className="flex-1 space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Pages per area: {pages}</label>
+            <input
+              type="range" min={1} max={50} value={pages}
+              onChange={e => setPages(Number(e.target.value))}
+              className="w-full accent-brand"
+            />
+          </div>
+          <div className="space-y-1.5 shrink-0">
+            <label className="text-xs font-semibold text-muted-foreground">Subcategories</label>
+            <button
+              onClick={() => setSubcategories(v => !v)}
+              className={cn("w-full h-10 px-4 rounded-lg text-xs font-semibold ring-1 transition-colors",
+                subcategories ? "bg-brand/10 ring-brand text-brand" : "ring-border bg-background text-muted-foreground"
+              )}
+            >
+              {subcategories ? "✅ All Subs" : "Main Only"}
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-2">
@@ -5781,7 +5793,8 @@ function MobileScraperPanel({ API }: { API: string }) {
         <div className="flex items-center gap-2">
           <Activity className="size-4 text-brand" />
           <h3 className="text-base font-semibold">Live Log</h3>
-          <span className="ml-auto text-[9px] text-muted-foreground">scrape.log · refreshes every 5s</span>
+          <button onClick={fetchLog} className="ml-auto text-[9px] text-brand hover:underline px-2 py-0.5 ring-1 ring-brand/30 rounded-full">↻ Refresh</button>
+          <span className="text-[9px] text-muted-foreground">scrape.log · auto every 8s</span>
         </div>
         <div
           ref={logRef}

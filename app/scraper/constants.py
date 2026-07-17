@@ -60,35 +60,69 @@ def get_cities_to_scrape(state: str, district: str) -> list[str]:
 
 def get_areas_for_district(district_name: str) -> list[str]:
     """
-    Returns a list of key commercial areas and sub-districts/towns for a given district
-    to allow localized and comprehensive category searches.
+    Returns a list of key commercial areas and sub-districts/towns for a given district.
+    First entry = main city (gets full pages), rest = smaller areas (max 4 pages).
     """
     mapping = {
-        "thrissur": [
-            "Thrissur", "Chavakkad", "Irinjalakuda", "Kunnamkulam", 
-            "Guruvayur", "Kodungallur", "Chalakudy", "Wadakkanchery", 
-            "Triprayar", "Mannuthy", "Viyyur", "Olarikkara"
-        ],
-        "ernakulam": [
-            "Willingdon Island", "Bolgatty", "Vypeen", "Chottanikkara", 
-            "Koothattukulam", "Kolenchery", "Kizhakkambalam", "Pothanicad", 
-            "Maradu", "Cheranallur", "Eloor", "Thammanam", "Poonithura", 
-            "Vennala", "Kumbalam", "Kundannoor"
-        ],
         "thiruvananthapuram": [
-            "Thiruvananthapuram", "Neyyattinkara", "Attingal", "Nedumangad", 
+            "Thiruvananthapuram", "Neyyattinkara", "Attingal", "Nedumangad",
             "Varkala", "Kazhakkoottam", "Kovalam", "Kilimanoor"
         ],
+        "kollam": [
+            "Kollam", "Punalur", "Kottarakkara", "Paravur",
+            "Karunagappally", "Chavara", "Kundara"
+        ],
+        "pathanamthitta": [
+            "Pathanamthitta", "Adoor", "Thiruvalla", "Ranni",
+            "Konni", "Pandalam", "Kozhencherry"
+        ],
+        "alappuzha": [
+            "Alappuzha", "Chengannur", "Mavelikkara", "Haripad",
+            "Cherthala", "Kayamkulam", "Kuttanad"
+        ],
+        "kottayam": [
+            "Kottayam", "Changanasserry", "Pala", "Vaikom",
+            "Ettumanoor", "Kanjirappally", "Mundakayam"
+        ],
+        "idukki": [
+            "Idukki", "Thodupuzha", "Munnar", "Kattappana",
+            "Adimaly", "Nedumkandam", "Painavu"
+        ],
+        "ernakulam": [
+            "Ernakulam", "Aluva", "Angamaly", "Perumbavoor",
+            "Muvattupuzha", "Kothamangalam", "Thrippunithura",
+            "Kalamassery", "North Paravur", "Kolenchery"
+        ],
+        "thrissur": [
+            "Thrissur", "Guruvayur", "Irinjalakuda", "Kunnamkulam",
+            "Chalakudy", "Chavakkad", "Kodungallur", "Wadakkanchery"
+        ],
+        "palakkad": [
+            "Palakkad", "Ottapalam", "Shoranur", "Mannarkkad",
+            "Chittur", "Pattambi", "Malampuzha"
+        ],
+        "malappuram": [
+            "Malappuram", "Manjeri", "Tirur", "Ponnani",
+            "Perinthalmanna", "Nilambur", "Tirurrangadi"
+        ],
         "kozhikode": [
-            "Kozhikode", "Vadakara", "Koyilandy", "Thamarassery", 
+            "Kozhikode", "Vadakara", "Koyilandy", "Thamarassery",
             "Balussery", "Feroke", "Kunnamangalam", "Ramanattukara"
         ],
+        "wayanad": [
+            "Kalpetta", "Mananthavady", "Sulthan Bathery",
+            "Vythiri", "Ambalavayal"
+        ],
         "kannur": [
-            "Kannur", "Thalassery", "Payyannur", "Taliparamba", 
+            "Kannur", "Thalassery", "Payyannur", "Taliparamba",
             "Iritty", "Kuthuparamba", "Mattannur"
-        ]
+        ],
+        "kasaragod": [
+            "Kasaragod", "Kanhangad", "Hosdurg", "Nileshwar",
+            "Manjeshwar", "Cheruvathur"
+        ],
     }
-    
+
     key = district_name.lower().strip()
     return mapping.get(key, [district_name])
 
