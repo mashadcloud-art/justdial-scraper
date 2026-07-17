@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   Layers,
   Link2,
+  Map as MapIcon,
   MapPin,
   Maximize2,
   Loader2,
@@ -92,7 +93,7 @@ type Business = {
   professionals?: { name: string; achievement: string; tags: string; image_url?: string }[];
 };
 
-type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | "module_store" | "mobile_scraper" | { type: "detail"; business: Business };
+type Tab = "scraper" | "dashboard" | "listings" | "gmaps" | "web_scraper" | "cloud_direct" | "coverage" | "deep_scrape" | "module_store" | "mobile_scraper" | "map_scraper" | { type: "detail"; business: Business };
 
 type ModuleInfo = {
   name: string;
@@ -114,6 +115,7 @@ const TAB_MODULE: Record<string, string> = {
   deep_scrape: "deep_scrape",
   export_history: "export",
   mobile_scraper: "mobile_scraper",
+  map_scraper: "map_scraper",
 };
 type LogEntry = { time: string; ok: boolean; msg: string };
 type Status = "Ready" | "Scraping..." | "Complete" | "Stopped";
@@ -2119,6 +2121,9 @@ function Dashboard() {
           {isTabActive("mobile_scraper") && (
             <NavItem icon={<Smartphone className="size-4" />}    label="Mobile"        active={activeTab === "mobile_scraper"} onClick={() => { setActiveTab("mobile_scraper"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
           )}
+          {isTabActive("map_scraper") && (
+            <NavItem icon={<MapIcon className="size-4" />}       label="Map Scraper"   active={activeTab === "map_scraper"} onClick={() => { setActiveTab("map_scraper"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
+          )}
           <NavItem icon={<Package className="size-4" />}        label="Module Store"  active={activeTab === "module_store"} onClick={() => { setActiveTab("module_store"); setMobileSidebarOpen(false); }} collapsed={sidebarCollapsed} dark={sidebarCollapsed} />
 
           {/* Open record tabs — only in expanded mode */}
@@ -2206,7 +2211,7 @@ function Dashboard() {
             </button>
             <span className="text-xs text-muted-foreground hidden sm:block">Home /</span>
             <span className="text-sm font-semibold capitalize truncate">
-              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : activeTab === "module_store" ? "Module Store" : activeTab === "mobile_scraper" ? "Mobile Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
+              {activeTab === "scraper" ? "Scraper" : activeTab === "coverage" ? "Coverage Tracker" : activeTab === "web_scraper" ? "Web Scraper" : activeTab === "cloud_direct" ? "Cloud Direct" : activeTab === "deep_scrape" ? "Deep Category Scraper" : activeTab === "dashboard" ? "Dashboard" : activeTab === "listings" ? "Listings Queue" : activeTab === "gmaps" ? "Maps Scraper" : activeTab === "module_store" ? "Module Store" : activeTab === "mobile_scraper" ? "Mobile Scraper" : activeTab === "map_scraper" ? "Map Scraper" : (activeTab as { type: "detail"; business: Business }).business.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -4508,6 +4513,11 @@ function Dashboard() {
               <MobileScraperPanel API={API} />
             )}
 
+            {/* ── MAP SCRAPER TAB ── */}
+            {activeTab === "map_scraper" && (
+              <MapScraperPanel API={API} />
+            )}
+
             {/* ── DETAIL TAB ── */}
             {isDetailTab && (
               <DetailView
@@ -6049,6 +6059,281 @@ function GMapsPanel({ API, addLog, onDone }: {
           </section>
         )}
       </div>
+    </div>
+  );
+}
+
+function MapScraperPanel({ API }: { API: string }) {
+  const KERALA_DISTRICTS = CITIES["Kerala"] || [];
+
+  const [district, setDistrict] = useState("All");
+  const [category, setCategory] = useState("");
+  const [maxResults, setMaxResults] = useState(100);
+  const [autoSync, setAutoSync] = useState(true);
+
+  const [connected, setConnected] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [lastQuery, setLastQuery] = useState<string | null>(null);
+  const [lastFound, setLastFound] = useState(0);
+  const [lastSynced, setLastSynced] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
+
+  const [results, setResults] = useState<any[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
+  const lastLogIdx = useRef(0);
+
+  async function fetchStatus() {
+    try {
+      const res = await fetch(`${API}/map_scraper/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnected(!!data.connected);
+        setRunning(!!data.running);
+        setBaseUrl(data.base_url || "");
+        setLastQuery(data.last_query || null);
+        setLastFound(data.last_result_count || 0);
+        setLastSynced(data.last_synced || 0);
+        setLastError(data.last_error || null);
+      } else {
+        setConnected(false);
+      }
+    } catch {
+      setConnected(false);
+    }
+  }
+
+  async function fetchLog() {
+    try {
+      const res = await fetch(`${API}/map_scraper/log?last_idx=${lastLogIdx.current}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.logs?.length) {
+          setLogs(l => [...l, ...data.logs]);
+          lastLogIdx.current = data.next_idx;
+        }
+      }
+    } catch { /* ignore — keep last known log */ }
+  }
+
+  async function fetchResults() {
+    try {
+      const res = await fetch(`${API}/map_scraper/results?limit=1`);
+      if (res.ok) {
+        const data = await res.json();
+        setResults(data.businesses || []);
+      }
+    } catch { /* ignore — keep last known results */ }
+  }
+
+  useEffect(() => {
+    fetchStatus();
+    fetchLog();
+    fetchResults();
+    const statusInterval = setInterval(fetchStatus, 6000);
+    const logInterval = setInterval(fetchLog, 6000);
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(logInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  // While a run is active, poll results more eagerly; refresh once more right after it finishes.
+  useEffect(() => {
+    if (!running) { fetchResults(); return; }
+    const interval = setInterval(fetchResults, 8000);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  async function startScrape() {
+    if (!category.trim() && (!district || district === "All")) {
+      toast.error("Pick a district or enter a category to search for.");
+      return;
+    }
+    setStarting(true);
+    try {
+      const res = await fetch(`${API}/map_scraper/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          district: district === "All" ? "" : district,
+          category,
+          max_results: maxResults,
+          auto_sync: autoSync,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Map Scraper started on thozil: ${data.query}`);
+        await fetchStatus();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || "Failed to start scrape.");
+      }
+    } catch {
+      toast.error("Failed to reach thozil server.");
+    }
+    setStarting(false);
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${API}/map_scraper/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ district: district === "All" ? "" : district, category, limit: 1 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Synced ${data.synced} listings to Supabase.`);
+        await fetchStatus();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || "Failed to sync results.");
+      }
+    } catch {
+      toast.error("Failed to reach server.");
+    }
+    setSyncing(false);
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <section className="p-6 rounded-2xl ring-1 ring-brand/30 bg-card shadow-elegant space-y-4">
+        <div className="flex items-center gap-2">
+          <MapIcon className="size-4 text-brand" />
+          <h3 className="text-base font-semibold">Map Scraper — thozil server</h3>
+          <span className={cn(
+            "ml-auto text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
+            connected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"
+          )}>
+            {connected ? "Connected" : "Disconnected"}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Triggers a Google Maps scrape on the Map Scraper service running at{" "}
+          <span className="font-mono text-foreground/80">{baseUrl || "thozil server"}</span> and
+          optionally syncs results straight into Supabase.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">District</label>
+            <select
+              value={district}
+              onChange={e => setDistrict(e.target.value)}
+              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+            >
+              <option value="All">🌍 No district (category only)</option>
+              {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Category</label>
+            <input
+              type="text"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              placeholder="e.g. Hospitals, Restaurants"
+              className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex-1 space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Max results: {maxResults}</label>
+            <input
+              type="range" min={10} max={300} step={10} value={maxResults}
+              onChange={e => setMaxResults(Number(e.target.value))}
+              className="w-full accent-brand"
+            />
+          </div>
+          <div className="space-y-1.5 shrink-0">
+            <label className="text-xs font-semibold text-muted-foreground block">Auto-sync</label>
+            <label className="flex items-center gap-2 h-10 px-1 cursor-pointer">
+              <Switch checked={autoSync} onCheckedChange={setAutoSync} />
+              <span className="text-[10px] text-muted-foreground">{autoSync ? "On" : "Off"}</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button onClick={startScrape} disabled={starting || running || !connected}
+            className="flex-1 h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
+            <Play className="size-3.5 mr-1.5" />{running ? "Running on thozil..." : starting ? "Starting..." : "Start Scrape"}
+          </Button>
+          <Button onClick={syncNow} disabled={syncing || running} variant="outline" className="h-10 px-3 text-xs">
+            <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
+          </Button>
+        </div>
+        {lastQuery && (
+          <p className="text-[10px] text-muted-foreground">Last query: <span className="font-mono text-foreground/70">{lastQuery}</span></p>
+        )}
+        {lastError && (
+          <p className="text-[10px] text-destructive">Last error: {lastError}</p>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Last Found</div>
+            <div className="text-xl font-bold text-brand mt-1">{lastFound}</div>
+          </div>
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Synced to Supabase</div>
+            <div className="text-xl font-bold mt-1">{lastSynced}</div>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Activity className="size-3.5 text-brand" />
+            <span className="text-xs font-semibold">Live Log</span>
+          </div>
+          <div
+            ref={logRef}
+            className="h-32 overflow-y-auto rounded-lg bg-background ring-1 ring-border p-3 font-mono text-[10px] whitespace-pre-wrap leading-relaxed"
+          >
+            {logs.length === 0 ? "No log output yet." : logs.map((l, i) => (
+              <div key={i} className={l.ok ? "text-foreground/80" : "text-destructive"}>[{l.time}] {l.msg}</div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3 flex flex-col">
+        <div className="flex items-center gap-2">
+          <Database className="size-4 text-brand" />
+          <h3 className="text-base font-semibold">Live Results Feed</h3>
+          <button onClick={fetchResults} className="ml-auto text-[9px] text-brand hover:underline px-2 py-0.5 ring-1 ring-brand/30 rounded-full">↻ Refresh</button>
+          <span className="text-[9px] text-muted-foreground">{results.length} in latest batch</span>
+        </div>
+        <div className="flex-1 min-h-[360px] max-h-[500px] overflow-y-auto rounded-lg bg-background ring-1 ring-border divide-y divide-border">
+          {results.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-10">No results yet — start a scrape to see live results here.</p>
+          ) : results.map((r, i) => (
+            <div key={i} className="p-3 space-y-0.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium truncate">{r.name || "Unnamed"}</span>
+                {r.rating && <span className="text-[10px] text-amber-500 shrink-0 flex items-center gap-0.5"><Star className="size-3" />{r.rating}</span>}
+              </div>
+              {r.address && <p className="text-xs text-muted-foreground truncate">{r.address}</p>}
+              <div className="flex items-center gap-3 flex-wrap">
+                {r.category && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand">{r.category}</span>}
+                {r.phone && <span className="text-[10px] text-muted-foreground">📞 {r.phone}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
