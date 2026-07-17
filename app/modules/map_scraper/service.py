@@ -30,9 +30,18 @@ _state = {
     "last_query": None,
     "last_result_count": 0,
     "last_synced": 0,
+    "total_synced": 0,
+    "last_sync_at": None,
     "last_error": None,
     "last_run_at": None,
 }
+
+
+def _record_sync(synced: int):
+    with _state_lock:
+        _state["last_synced"] = synced
+        _state["total_synced"] += synced
+        _state["last_sync_at"] = datetime.utcnow().isoformat()
 
 _log_lock = threading.Lock()
 _logs: list = []
@@ -114,8 +123,7 @@ def start_scrape(district: str, category: str, max_results: int = 100, auto_sync
 
             if auto_sync and businesses:
                 synced = sync_businesses(businesses, district=district, category=category)
-                with _state_lock:
-                    _state["last_synced"] = synced
+                _record_sync(synced)
                 _log(f"Synced {synced} listings to Supabase (category=Google Maps).")
         except requests.RequestException as e:
             with _state_lock:
@@ -223,8 +231,8 @@ def _watch_and_sync_run(scraper_id: str, before: set, district: str, category: s
                 data = get_result(filename)
                 businesses = data.get("businesses") or data.get("items") or []
                 synced = sync_businesses(businesses, district=district, category=category)
+                _record_sync(synced)
                 with _state_lock:
-                    _state["last_synced"] = synced
                     _state["last_result_count"] = len(businesses)
                 _log(f"Synced {synced} listings from '{filename}' to Supabase.")
             except Exception as e:
@@ -351,6 +359,5 @@ def sync_result(filename: Optional[str], district: str = "", category: str = "")
 
     businesses = data.get("businesses") or data.get("items") or []
     synced = sync_businesses(businesses, district=district, category=category)
-    with _state_lock:
-        _state["last_synced"] = synced
+    _record_sync(synced)
     return {"ok": True, "synced": synced, "found": len(businesses), "filename": filename}

@@ -21,7 +21,6 @@ import {
   Link2,
   Map as MapIcon,
   MapPin,
-  Plus,
   Maximize2,
   Loader2,
   MessageCircle,
@@ -6064,60 +6063,18 @@ function GMapsPanel({ API, addLog, onDone }: {
   );
 }
 
-type MapScraperInfo = {
-  id: string;
-  name: string;
-  type: string;
-  config: any;
-  schedule?: string | null;
-  lastRun?: string | null;
-  status: string;
-  created: string;
-  lastResult?: string;
-  lastError?: string;
-};
+const MMAP_SCRAPER_URL = "http://152.67.165.254:3000";
+const AUTO_SYNC_INTERVAL_MS = 30000;
 
 function MapScraperPanel({ API }: { API: string }) {
-  const KERALA_DISTRICTS = CITIES["Kerala"] || [];
-
-  const [district, setDistrict] = useState("All");
-  const [category, setCategory] = useState("");
-  const [maxResults, setMaxResults] = useState(100);
-  const [autoSync, setAutoSync] = useState(true);
-
   const [connected, setConnected] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [starting, setStarting] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
-  const [lastQuery, setLastQuery] = useState<string | null>(null);
-  const [lastFound, setLastFound] = useState(0);
-  const [lastSynced, setLastSynced] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [autoSync, setAutoSync] = useState(false);
+  const [totalSynced, setTotalSynced] = useState(0);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [lastBatchCount, setLastBatchCount] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
-
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const logRef = useRef<HTMLDivElement>(null);
-  const lastLogIdx = useRef(0);
-
-  // Saved scrapers
-  const [scrapers, setScrapers] = useState<MapScraperInfo[]>([]);
-  const [runningScraperId, setRunningScraperId] = useState<string | null>(null);
-  const [deletingScraperId, setDeletingScraperId] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState<"google-maps" | "custom">("google-maps");
-  const [newQuery, setNewQuery] = useState("");
-  const [newMaxResults, setNewMaxResults] = useState(100);
-  const [newUrl, setNewUrl] = useState("");
-  const [newListSelector, setNewListSelector] = useState("");
-  const [newSchedule, setNewSchedule] = useState("");
-
-  // Results
-  const [resultFiles, setResultFiles] = useState<string[]>([]);
-  const [expandedFile, setExpandedFile] = useState<string | null>(null);
-  const [resultDetails, setResultDetails] = useState<Record<string, any>>({});
-  const [loadingFile, setLoadingFile] = useState<string | null>(null);
-  const [syncingFile, setSyncingFile] = useState<string | null>(null);
 
   async function fetchStatus() {
     try {
@@ -6125,11 +6082,10 @@ function MapScraperPanel({ API }: { API: string }) {
       if (res.ok) {
         const data = await res.json();
         setConnected(!!data.connected);
-        setRunning(!!data.running);
         setBaseUrl(data.base_url || "");
-        setLastQuery(data.last_query || null);
-        setLastFound(data.last_result_count || 0);
-        setLastSynced(data.last_synced || 0);
+        setTotalSynced(data.total_synced || 0);
+        setLastSyncAt(data.last_sync_at || null);
+        setLastBatchCount(data.last_synced || 0);
         setLastError(data.last_error || null);
       } else {
         setConnected(false);
@@ -6139,480 +6095,94 @@ function MapScraperPanel({ API }: { API: string }) {
     }
   }
 
-  async function fetchLog() {
-    try {
-      const res = await fetch(`${API}/map_scraper/log?last_idx=${lastLogIdx.current}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.logs?.length) {
-          setLogs(l => [...l, ...data.logs]);
-          lastLogIdx.current = data.next_idx;
-        }
-      }
-    } catch { /* ignore — keep last known log */ }
-  }
-
-  async function fetchScrapers() {
-    try {
-      const res = await fetch(`${API}/map_scraper/scrapers`);
-      if (res.ok) {
-        const data = await res.json();
-        setScrapers(data.scrapers || []);
-      }
-    } catch { /* ignore — keep last known list */ }
-  }
-
-  async function fetchResultFiles() {
-    try {
-      const res = await fetch(`${API}/map_scraper/results`);
-      if (res.ok) {
-        const data = await res.json();
-        setResultFiles(data.files || []);
-      }
-    } catch { /* ignore — keep last known list */ }
-  }
-
   useEffect(() => {
     fetchStatus();
-    fetchLog();
-    fetchScrapers();
-    fetchResultFiles();
-    const statusInterval = setInterval(fetchStatus, 6000);
-    const logInterval = setInterval(fetchLog, 6000);
-    const listInterval = setInterval(() => { fetchScrapers(); fetchResultFiles(); }, 10000);
-    return () => {
-      clearInterval(statusInterval);
-      clearInterval(logInterval);
-      clearInterval(listInterval);
-    };
+    const interval = setInterval(fetchStatus, 8000);
+    return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
-  async function startScrape() {
-    if (!category.trim() && (!district || district === "All")) {
-      toast.error("Pick a district or enter a category to search for.");
-      return;
-    }
-    setStarting(true);
-    try {
-      const res = await fetch(`${API}/map_scraper/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          district: district === "All" ? "" : district,
-          category,
-          max_results: maxResults,
-          auto_sync: autoSync,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        toast.success(`Map Scraper started on thozil: ${data.query}`);
-        await fetchStatus();
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.detail || "Failed to start scrape.");
-      }
-    } catch {
-      toast.error("Failed to reach thozil server.");
-    }
-    setStarting(false);
-  }
-
-  async function createScraper() {
-    if (!newName.trim()) { toast.error("Name is required."); return; }
-    if (newType === "google-maps" && !newQuery.trim()) { toast.error("Search query is required."); return; }
-    if (newType === "custom" && !newUrl.trim()) { toast.error("URL is required for a custom scraper."); return; }
-
-    setCreating(true);
-    try {
-      const res = await fetch(`${API}/map_scraper/scrapers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newName,
-          type: newType,
-          query: newType === "google-maps" ? newQuery : undefined,
-          max_results: newMaxResults,
-          url: newType === "custom" ? newUrl : undefined,
-          list_selector: newType === "custom" ? (newListSelector || undefined) : undefined,
-          schedule: newSchedule.trim() || undefined,
-        }),
-      });
-      if (res.ok) {
-        toast.success(`Saved scraper "${newName}" created.`);
-        setCreateOpen(false);
-        setNewName(""); setNewQuery(""); setNewUrl(""); setNewListSelector(""); setNewSchedule(""); setNewMaxResults(100);
-        await fetchScrapers();
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.detail || "Failed to create scraper.");
-      }
-    } catch {
-      toast.error("Failed to reach thozil server.");
-    }
-    setCreating(false);
-  }
-
-  async function runScraper(id: string) {
-    setRunningScraperId(id);
-    try {
-      const res = await fetch(`${API}/map_scraper/scrapers/${encodeURIComponent(id)}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ district: district === "All" ? "" : district, category, auto_sync: autoSync }),
-      });
-      if (res.ok) {
-        toast.success(`Running "${id}" on thozil...`);
-        await fetchScrapers();
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.detail || "Failed to run scraper.");
-      }
-    } catch {
-      toast.error("Failed to reach thozil server.");
-    }
-    setRunningScraperId(null);
-  }
-
-  async function deleteScraper(id: string) {
-    setDeletingScraperId(id);
-    try {
-      const res = await fetch(`${API}/map_scraper/scrapers/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success(`Deleted "${id}".`);
-        setScrapers(list => list.filter(s => s.id !== id));
-      } else {
-        toast.error("Failed to delete scraper.");
-      }
-    } catch {
-      toast.error("Failed to reach thozil server.");
-    }
-    setDeletingScraperId(null);
-  }
-
-  async function toggleResult(filename: string) {
-    if (expandedFile === filename) { setExpandedFile(null); return; }
-    setExpandedFile(filename);
-    if (resultDetails[filename]) return;
-    setLoadingFile(filename);
-    try {
-      const res = await fetch(`${API}/map_scraper/results/${encodeURIComponent(filename)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setResultDetails(d => ({ ...d, [filename]: data }));
-      } else {
-        toast.error("Failed to load result.");
-      }
-    } catch {
-      toast.error("Failed to reach thozil server.");
-    }
-    setLoadingFile(null);
-  }
-
-  async function syncFile(filename: string) {
-    setSyncingFile(filename);
+  async function syncLatest(silent = false) {
+    setSyncing(true);
     try {
       const res = await fetch(`${API}/map_scraper/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename, district: district === "All" ? "" : district, category }),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         const data = await res.json();
-        toast.success(`Synced ${data.synced} listings to Supabase.`);
+        if (!silent || data.synced > 0) toast.success(`Synced ${data.synced} listings to Supabase.`);
         await fetchStatus();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || "Failed to sync results.");
+        if (!silent) toast.error(err?.detail || "Failed to sync results.");
       }
     } catch {
-      toast.error("Failed to reach server.");
+      if (!silent) toast.error("Failed to reach server.");
     }
-    setSyncingFile(null);
+    setSyncing(false);
   }
 
+  // While auto-sync is on, silently sync the latest results every 30s.
+  useEffect(() => {
+    if (!autoSync) return;
+    const interval = setInterval(() => { syncLatest(true); }, AUTO_SYNC_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [autoSync]);
+
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Quick Scrape + Live Log */}
-        <section className="p-6 rounded-2xl ring-1 ring-brand/30 bg-card shadow-elegant space-y-4">
-          <div className="flex items-center gap-2">
-            <MapIcon className="size-4 text-brand" />
-            <h3 className="text-base font-semibold">Map Scraper — thozil server</h3>
-            <span className={cn(
-              "ml-auto text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
-              connected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"
-            )}>
-              {connected ? "Connected" : "Disconnected"}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Triggers a Google Maps scrape on the Map Scraper service running at{" "}
-            <span className="font-mono text-foreground/80">{baseUrl || "thozil server"}</span> and
-            optionally syncs results straight into Supabase.
-          </p>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">District</label>
-              <select
-                value={district}
-                onChange={e => setDistrict(e.target.value)}
-                className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
-              >
-                <option value="All">🌍 No district (category only)</option>
-                {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Category</label>
-              <input
-                type="text"
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                placeholder="e.g. Hospitals, Restaurants"
-                className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Max results: {maxResults}</label>
-              <input
-                type="range" min={10} max={300} step={10} value={maxResults}
-                onChange={e => setMaxResults(Number(e.target.value))}
-                className="w-full accent-brand"
-              />
-            </div>
-            <div className="space-y-1.5 shrink-0">
-              <label className="text-xs font-semibold text-muted-foreground block">Auto-sync</label>
-              <label className="flex items-center gap-2 h-10 px-1 cursor-pointer" title="Applies to Quick Scrape and Run Scraper — saves results to Supabase automatically">
-                <Switch checked={autoSync} onCheckedChange={setAutoSync} />
-                <span className="text-[10px] text-muted-foreground">{autoSync ? "On" : "Off"}</span>
-              </label>
-            </div>
-          </div>
-
-          <Button onClick={startScrape} disabled={starting || running || !connected}
-            className="w-full h-10 text-white text-xs" style={{ background: "var(--gradient-brand)" }}>
-            <Play className="size-3.5 mr-1.5" />{running ? "Running on thozil..." : starting ? "Starting..." : "Quick Scrape"}
-          </Button>
-          {lastQuery && (
-            <p className="text-[10px] text-muted-foreground">Last query: <span className="font-mono text-foreground/70">{lastQuery}</span></p>
-          )}
-          {lastError && (
-            <p className="text-[10px] text-destructive">Last error: {lastError}</p>
-          )}
-
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <div className="rounded-lg ring-1 ring-border bg-background p-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Last Found</div>
-              <div className="text-xl font-bold text-brand mt-1">{lastFound}</div>
-            </div>
-            <div className="rounded-lg ring-1 ring-border bg-background p-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Synced to Supabase</div>
-              <div className="text-xl font-bold mt-1">{lastSynced}</div>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Activity className="size-3.5 text-brand" />
-              <span className="text-xs font-semibold">Live Log</span>
-            </div>
-            <div
-              ref={logRef}
-              className="h-32 overflow-y-auto rounded-lg bg-background ring-1 ring-border p-3 font-mono text-[10px] whitespace-pre-wrap leading-relaxed"
-            >
-              {logs.length === 0 ? "No log output yet." : logs.map((l, i) => (
-                <div key={i} className={l.ok ? "text-foreground/80" : "text-destructive"}>[{l.time}] {l.msg}</div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Saved Scrapers */}
-        <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3 flex flex-col">
-          <div className="flex items-center gap-2">
-            <Database className="size-4 text-brand" />
-            <h3 className="text-base font-semibold">Saved Scrapers</h3>
-            <button onClick={fetchScrapers} className="ml-auto text-[9px] text-brand hover:underline px-2 py-0.5 ring-1 ring-brand/30 rounded-full">↻ Refresh</button>
-            <Button size="sm" onClick={() => setCreateOpen(true)} className="h-7 px-2.5 text-[10px] text-white" style={{ background: "var(--gradient-brand)" }}>
-              <Plus className="size-3 mr-1" />New Scraper
-            </Button>
-          </div>
-          <div className="flex-1 min-h-[420px] max-h-[560px] overflow-y-auto rounded-lg bg-background ring-1 ring-border divide-y divide-border">
-            {scrapers.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-10">No saved scrapers yet — create one to schedule or re-run it anytime.</p>
-            ) : scrapers.map(s => (
-              <div key={s.id} className="p-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium truncate">{s.name}</span>
-                  <span className={cn(
-                    "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide shrink-0",
-                    s.status === "completed" ? "bg-emerald-500/10 text-emerald-600" :
-                    s.status === "running" ? "bg-amber-500/10 text-amber-500" :
-                    s.status === "failed" ? "bg-destructive/10 text-destructive" :
-                    "bg-muted text-muted-foreground"
-                  )}>
-                    {s.status}
-                  </span>
-                </div>
-                <p className="text-[10px] font-mono text-muted-foreground truncate">
-                  {s.type === "google-maps" ? s.config?.query : s.config?.url} · id: {s.id}
-                </p>
-                {s.schedule && <p className="text-[10px] text-muted-foreground">⏱ {s.schedule}</p>}
-                {s.lastRun && <p className="text-[10px] text-muted-foreground">Last run: {new Date(s.lastRun).toLocaleString()}</p>}
-                {s.lastError && <p className="text-[10px] text-destructive truncate" title={s.lastError}>{s.lastError}</p>}
-                <div className="flex gap-2 pt-1">
-                  <Button size="sm" onClick={() => runScraper(s.id)} disabled={runningScraperId === s.id || s.status === "running"}
-                    className="h-7 px-2.5 text-[10px] flex-1 text-white" style={{ background: "var(--gradient-brand)" }}>
-                    <Play className="size-3 mr-1" />{runningScraperId === s.id ? "Starting..." : "Run"}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => deleteScraper(s.id)} disabled={deletingScraperId === s.id}
-                    className="h-7 px-2 text-destructive border-destructive/30 hover:bg-destructive/10">
-                    <Trash2 className="size-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* Results */}
-      <section className="p-6 rounded-2xl ring-1 ring-border bg-card shadow-elegant space-y-3">
-        <div className="flex items-center gap-2">
-          <FileSpreadsheet className="size-4 text-brand" />
-          <h3 className="text-base font-semibold">Results</h3>
-          <button onClick={fetchResultFiles} className="ml-auto text-[9px] text-brand hover:underline px-2 py-0.5 ring-1 ring-brand/30 rounded-full">↻ Refresh</button>
-          <span className="text-[9px] text-muted-foreground">{resultFiles.length} saved batches</span>
+    <div className="max-w-2xl mx-auto">
+      <section className="p-8 rounded-2xl ring-1 ring-brand/30 bg-card shadow-elegant space-y-5 text-center">
+        <div className="flex items-center justify-center gap-2">
+          <MapIcon className="size-5 text-brand" />
+          <h3 className="text-lg font-semibold">Map Scraper</h3>
+          <span className={cn(
+            "text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
+            connected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"
+          )}>
+            {connected ? "Connected" : "Disconnected"}
+          </span>
         </div>
-        <div className="rounded-lg bg-background ring-1 ring-border divide-y divide-border max-h-[600px] overflow-y-auto">
-          {resultFiles.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-10">No results yet — run a scrape to see batches here.</p>
-          ) : resultFiles.map(filename => {
-            const detail = resultDetails[filename];
-            const businesses: any[] = detail ? (detail.businesses || detail.items || []) : [];
-            const expanded = expandedFile === filename;
-            return (
-              <div key={filename}>
-                <div className="p-3 flex items-center gap-2">
-                  <button onClick={() => toggleResult(filename)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                    {expanded ? <ChevronUp className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />}
-                    <span className="text-xs font-mono truncate">{filename}</span>
-                    {detail && <span className="text-[10px] text-muted-foreground shrink-0">({businesses.length})</span>}
-                  </button>
-                  <Button size="sm" variant="outline" onClick={() => syncFile(filename)} disabled={syncingFile === filename}
-                    className="h-7 px-2 text-[10px]" title="Sync this result to Supabase">
-                    <RefreshCw className={cn("size-3 mr-1", syncingFile === filename && "animate-spin")} />Sync
-                  </Button>
-                  <a href={`${API}/map_scraper/results/${encodeURIComponent(filename)}/download`} download
-                    className="size-7 rounded-lg ring-1 ring-border flex items-center justify-center hover:bg-accent transition-colors shrink-0" title="Download JSON">
-                    <Download className="size-3.5" />
-                  </a>
-                  <a href={`${API}/map_scraper/results/${encodeURIComponent(filename)}/csv`} download
-                    className="size-7 rounded-lg ring-1 ring-border flex items-center justify-center hover:bg-accent transition-colors shrink-0" title="Download CSV">
-                    <FileSpreadsheet className="size-3.5" />
-                  </a>
-                </div>
-                {expanded && (
-                  <div className="px-3 pb-3">
-                    {loadingFile === filename ? (
-                      <p className="text-xs text-muted-foreground py-4 text-center"><Loader2 className="size-3.5 inline animate-spin mr-1.5" />Loading...</p>
-                    ) : businesses.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-4 text-center">No businesses in this batch.</p>
-                    ) : (
-                      <div className="rounded-lg ring-1 ring-border divide-y divide-border">
-                        {businesses.map((r: any, i: number) => (
-                          <div key={i} className="p-2.5 space-y-0.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium truncate">{r.name || "Unnamed"}</span>
-                              {r.rating && <span className="text-[10px] text-amber-500 shrink-0 flex items-center gap-0.5"><Star className="size-3" />{r.rating}</span>}
-                            </div>
-                            {r.address && <p className="text-xs text-muted-foreground truncate">{r.address}</p>}
-                            <div className="flex items-center gap-3 flex-wrap">
-                              {r.category && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand">{r.category}</span>}
-                              {r.phone && <span className="text-[10px] text-muted-foreground">📞 {r.phone}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+
+        <Button
+          onClick={() => window.open(MMAP_SCRAPER_URL, "_blank", "noopener,noreferrer")}
+          className="w-full h-12 text-white text-sm"
+          style={{ background: "var(--gradient-brand)" }}
+        >
+          <ExternalLink className="size-4 mr-2" />Open M Map Scraper
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Scrape data in M Map Scraper, then sync here
+          {baseUrl && <span className="block font-mono text-[10px] mt-1 text-muted-foreground/70">{baseUrl}</span>}
+        </p>
+
+        <div className="flex items-center gap-2">
+          <Button onClick={() => syncLatest(false)} disabled={syncing} variant="outline" className="flex-1 h-10 text-xs">
+            <RefreshCw className={cn("size-3.5 mr-1.5", syncing && "animate-spin")} />
+            {syncing ? "Syncing..." : "Sync Latest Results"}
+          </Button>
+          <label className="flex items-center gap-2 h-10 px-3 rounded-lg ring-1 ring-border cursor-pointer shrink-0" title="Automatically syncs the latest results every 30 seconds">
+            <Switch checked={autoSync} onCheckedChange={setAutoSync} />
+            <span className="text-[11px] text-muted-foreground whitespace-nowrap">Auto-sync {autoSync ? "On" : "Off"}</span>
+          </label>
+        </div>
+        {lastError && <p className="text-[10px] text-destructive">Last error: {lastError}</p>}
+
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Total Synced</div>
+            <div className="text-xl font-bold text-brand mt-1">{totalSynced}</div>
+          </div>
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Last Sync</div>
+            <div className="text-xs font-semibold mt-1.5">{lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "Never"}</div>
+          </div>
+          <div className="rounded-lg ring-1 ring-border bg-background p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Last Batch</div>
+            <div className="text-xl font-bold mt-1">{lastBatchCount}</div>
+          </div>
         </div>
       </section>
-
-      {/* Create Scraper Modal */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Saved Scraper</DialogTitle>
-            <DialogDescription>Creates a reusable scraper on the thozil Map Scraper service that you can re-run or schedule.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Name</label>
-              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Kollam Hospitals"
-                className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Type</label>
-              <select value={newType} onChange={e => setNewType(e.target.value as "google-maps" | "custom")}
-                className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand">
-                <option value="google-maps">Google Maps search</option>
-                <option value="custom">Custom URL / list selector</option>
-              </select>
-            </div>
-            {newType === "google-maps" ? (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Search query</label>
-                  <input value={newQuery} onChange={e => setNewQuery(e.target.value)} placeholder="e.g. Hospitals in Kollam"
-                    className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Max results: {newMaxResults}</label>
-                  <input type="range" min={10} max={300} step={10} value={newMaxResults} onChange={e => setNewMaxResults(Number(e.target.value))} className="w-full accent-brand" />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">URL</label>
-                  <input value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..."
-                    className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">List selector (optional)</label>
-                  <input value={newListSelector} onChange={e => setNewListSelector(e.target.value)} placeholder="e.g. div.results-list"
-                    className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand" />
-                </div>
-              </>
-            )}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Cron schedule (optional)</label>
-              <input value={newSchedule} onChange={e => setNewSchedule(e.target.value)} placeholder="e.g. 0 6 * * * (6am daily)"
-                className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand font-mono" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={createScraper} disabled={creating} className="text-white" style={{ background: "var(--gradient-brand)" }}>
-              {creating ? "Creating..." : "Create Scraper"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
