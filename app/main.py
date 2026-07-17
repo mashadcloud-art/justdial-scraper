@@ -128,18 +128,6 @@ def get_images_page():
     from fastapi import HTTPException
     raise HTTPException(status_code=404, detail="images.html not found")
 
-@app.get("/", response_class=HTMLResponse)
-@app.get("/scraper", response_class=HTMLResponse)
-@app.get("/scraper.html", response_class=HTMLResponse)
-def get_scraper_page():
-    if os.path.exists("scraper.html"):
-        with open("scraper.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
-    # fallback JSON
-    from fastapi.responses import JSONResponse
-    return JSONResponse({"status": "running", "message": "JustDial API is ready! Open /scraper.html"})
-
-
 # --- SERVE FRONTEND STATIC FILES ---
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -149,7 +137,17 @@ if os.path.exists("ui/dist/client"):
     # Mount the static assets folder (CSS, JS)
     app.mount("/assets", StaticFiles(directory="ui/dist/client/assets"), name="assets")
 
-    # Catch-all route to serve the React SPA index.html
+    # Serve the React SPA index.html for root and scraper routes
+    @app.get("/", response_class=HTMLResponse)
+    @app.get("/scraper", response_class=HTMLResponse)
+    def serve_frontend_root():
+        index_path = "ui/dist/client/index.html"
+        if os.path.exists(index_path):
+            with open(index_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        return HTMLResponse(content="Frontend build index.html not found.", status_code=404)
+
+    # Catch-all route to serve the React SPA index.html for other UI routes
     @app.get("/{rest_of_path:path}")
     def serve_frontend(rest_of_path: str):
         # Allow API and media directories to bypass
@@ -162,9 +160,16 @@ if os.path.exists("ui/dist/client"):
                 return HTMLResponse(content=f.read())
         return HTMLResponse(content="Frontend build index.html not found.", status_code=404)
 else:
-    @app.get("/")
-    def root():
-        return {"status": "running", "message": "JustDial API is ready!"}
+    @app.get("/", response_class=HTMLResponse)
+    @app.get("/scraper", response_class=HTMLResponse)
+    @app.get("/scraper.html", response_class=HTMLResponse)
+    def get_scraper_page():
+        if os.path.exists("scraper.html"):
+            with open("scraper.html", "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        # fallback JSON
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"status": "running", "message": "JustDial API is ready! Open /scraper.html"})
 
 if __name__ == "__main__":
     import uvicorn
