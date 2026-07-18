@@ -1,12 +1,12 @@
 {
   "name": "tanstack_start_ts",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "JustDial Pro Scraper desktop app",
   "author": "JustDial Pro",
   "private": true,
   "sideEffects": false,
   "type": "module",
-  "main": "electron-main.js",
+  "main": "electron-main.cjs",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -99,7 +99,7 @@
       "output": "release"
     },
     "files": [
-      "electron-main.js",
+      "electron-main.cjs",
       "electron-resources/**/*"
     ],
     "extraResources": [
