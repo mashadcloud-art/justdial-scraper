@@ -1,8 +1,8 @@
 {
   "name": "tanstack_start_ts",
-  "version": "1.0.3",
-  "description": "JustDial Pro Scraper desktop app",
-  "author": "JustDial Pro",
+  "version": "2.0.0",
+  "description": "JustDial Scraper Desktop App",
+  "author": "Mashad Cloud",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -10,11 +10,12 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "electron:dev": "electron .",
+    "electron:build": "vite build && electron-builder",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write .",
-    "dist": "electron-builder --win"
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -53,7 +54,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
-    "electron-updater": "^6.8.9",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
@@ -78,7 +78,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^41.7.1",
+    "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
@@ -94,46 +94,22 @@
   },
   "build": {
     "appId": "com.justdial.scraper",
-    "productName": "JustDial Pro",
-    "directories": {
-      "output": "release"
+    "productName": "JustDial Scraper",
+    "win": {
+      "target": "nsis"
     },
-    "files": [
-      "electron-main.cjs",
-      "electron-resources/**/*"
-    ],
     "extraResources": [
       {
-        "from": "../dist/backend.exe",
+        "from": "../JustDial_Scraper.exe",
         "to": "backend.exe"
       },
       {
         "from": "dist/client",
         "to": "ui/dist/client"
-      },
-      {
-        "from": "dist/server",
-        "to": "ui/dist/server"
       }
     ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "electron-resources/icon.ico"
-    },
-    "nsis": {
-      "artifactName": "JustDialPro_Setup.exe",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "mashadcloud-art",
-      "repo": "justdial-scraper"
+    "directories": {
+      "output": "../dist-installer-build"
     }
   }
 }
