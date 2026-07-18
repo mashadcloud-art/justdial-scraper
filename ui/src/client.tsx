@@ -1,6 +1,6 @@
 import { StrictMode, startTransition } from 'react'
 import { createRoot } from 'react-dom/client'
-import { StartClient } from '@tanstack/react-start/client'
+import { RouterProvider } from '@tanstack/react-router'
 import { getRouter } from './router'
 import './styles.css'
 
@@ -11,7 +11,7 @@ startTransition(() => {
   const root = createRoot(container)
   root.render(
     <StrictMode>
-      <StartClient router={router} />
+      <RouterProvider router={router} />
     </StrictMode>
   )
 })
