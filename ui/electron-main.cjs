@@ -11,6 +11,8 @@ const { pathToFileURL } = require("url");
 const LOOPBACK = "127.0.0.1";
 const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://${LOOPBACK}:${BACKEND_PORT}`;
+const BACKEND_HEALTH_URL = `${BACKEND_URL}/health`;
+const BACKEND_READY_TIMEOUT_MS = 30000;
 
 // TanStack Start build output is an SSR fetch handler (dist/server/server.js),
 // not a static index.html — it has to be served by a Node HTTP server, not
@@ -37,7 +39,43 @@ let mainWindow = null;
 let tray = null;
 let backendProcess = null;
 let frontendServer = null;
+let logStream = null;
 
+const backendLogLines = [];
+const MAX_BACKEND_LOG_LINES = 200;
+
+// ─── Logging ────────────────────────────────────────────────────────────
+// Packaged Windows apps have no visible console, so this is the only way to
+// see why backend.exe didn't start — write everything to a log file too.
+function getLogFilePath() {
+  return path.join(app.getPath("userData"), "logs", "main.log");
+}
+
+function initLogging() {
+  const logFile = getLogFilePath();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  logStream = fs.createWriteStream(logFile, { flags: "a" });
+  log(`===== JustDial Pro starting @ ${new Date().toISOString()} =====`);
+  log(`app.isPackaged=${app.isPackaged} resourcesPath=${process.resourcesPath}`);
+}
+
+function log(message) {
+  const line = `[${new Date().toISOString()}] ${message}`;
+  console.log(line);
+  logStream?.write(line + "\n");
+}
+
+function recordBackendOutput(source, data) {
+  const text = data.toString();
+  log(`[backend:${source}] ${text.trim()}`);
+  for (const line of text.split(/\r?\n/)) {
+    if (!line) continue;
+    backendLogLines.push(line);
+    if (backendLogLines.length > MAX_BACKEND_LOG_LINES) backendLogLines.shift();
+  }
+}
+
+// ─── Paths ──────────────────────────────────────────────────────────────
 function getBackendExePath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, "backend.exe")
@@ -56,18 +94,32 @@ function getServerEntryPath() {
     : path.join(__dirname, "dist", "server", "server.js");
 }
 
+// ─── Backend process ────────────────────────────────────────────────────
 function startBackend() {
   const exePath = getBackendExePath();
-  backendProcess = spawn(exePath, ["--host", LOOPBACK, "--port", String(BACKEND_PORT)], {
-    cwd: path.dirname(exePath),
-  });
+  log(`Resolved backend.exe path: ${exePath}`);
 
-  backendProcess.stdout?.on("data", (data) => console.log(`[backend] ${data}`.trim()));
-  backendProcess.stderr?.on("data", (data) => console.error(`[backend] ${data}`.trim()));
-  backendProcess.on("error", (err) => console.error("[backend] failed to start:", err));
-  backendProcess.on("exit", (code) => console.log(`[backend] exited with code ${code}`));
+  if (!fs.existsSync(exePath)) {
+    log(`ERROR: backend.exe not found at ${exePath}`);
+    return;
+  }
+
+  try {
+    backendProcess = spawn(exePath, ["--host", LOOPBACK, "--port", String(BACKEND_PORT)], {
+      cwd: path.dirname(exePath),
+    });
+  } catch (err) {
+    log(`ERROR: failed to spawn backend.exe: ${err.message}`);
+    return;
+  }
+
+  backendProcess.stdout?.on("data", (data) => recordBackendOutput("stdout", data));
+  backendProcess.stderr?.on("data", (data) => recordBackendOutput("stderr", data));
+  backendProcess.on("error", (err) => log(`ERROR: backend process error: ${err.message}`));
+  backendProcess.on("exit", (code, signal) => log(`backend.exe exited (code=${code}, signal=${signal})`));
 }
 
+// ─── Frontend server ────────────────────────────────────────────────────
 // The frontend, when run under Vite (dev/preview), reaches the backend via
 // Vite's dev-server "/api" proxy (see vite.config.ts). The packaged SSR
 // bundle has no such proxy, so this server has to forward "/api/*" itself.
@@ -80,7 +132,7 @@ function proxyToBackend(req, res) {
     },
   );
   proxyReq.on("error", (err) => {
-    console.error("[frontend] backend proxy error:", err);
+    log(`ERROR: [frontend] backend proxy error: ${err.message}`);
     res.writeHead(502);
     res.end("Backend unavailable");
   });
@@ -130,49 +182,64 @@ async function handleSsr(req, res) {
     }
     res.end();
   } catch (err) {
-    console.error("[frontend] SSR handler error:", err);
+    log(`ERROR: [frontend] SSR handler error: ${err.stack || err.message}`);
     res.writeHead(500, { "Content-Type": "text/plain" });
     res.end("Internal Server Error");
   }
 }
 
-function startFrontendServer(onListening) {
-  const clientDir = getClientDir();
-  frontendServer = http.createServer((req, res) => {
-    const pathname = req.url.split("?")[0];
-    if (pathname.startsWith("/api/")) {
-      proxyToBackend(req, res);
-      return;
-    }
-    if (pathname.startsWith("/assets/")) {
-      const filePath = path.join(clientDir, pathname);
-      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-        serveStatic(filePath, res);
+function startFrontendServer() {
+  return new Promise((resolve) => {
+    const clientDir = getClientDir();
+    frontendServer = http.createServer((req, res) => {
+      const pathname = req.url.split("?")[0];
+      if (pathname.startsWith("/api/")) {
+        proxyToBackend(req, res);
         return;
       }
-    }
-    handleSsr(req, res);
-  });
-  frontendServer.on("error", (err) => console.error("[frontend] server error:", err));
-  frontendServer.listen(FRONTEND_PORT, LOOPBACK, onListening);
-}
-
-function waitFor(url, callback, attempt = 0, maxAttempts = 60) {
-  http
-    .get(url, (res) => {
-      res.resume();
-      callback();
-    })
-    .on("error", () => {
-      if (attempt >= maxAttempts) {
-        console.error(`[startup] ${url} did not become ready in time, opening window anyway`);
-        callback();
-        return;
+      if (pathname.startsWith("/assets/")) {
+        const filePath = path.join(clientDir, pathname);
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          serveStatic(filePath, res);
+          return;
+        }
       }
-      setTimeout(() => waitFor(url, callback, attempt + 1, maxAttempts), 500);
+      handleSsr(req, res);
     });
+    frontendServer.on("error", (err) => {
+      log(`ERROR: frontend server error: ${err.message}`);
+      resolve(false);
+    });
+    frontendServer.listen(FRONTEND_PORT, LOOPBACK, () => {
+      log(`Frontend server listening on ${FRONTEND_URL}`);
+      resolve(true);
+    });
+  });
 }
 
+// ─── Readiness polling ──────────────────────────────────────────────────
+function pollUntilReady(url, timeoutMs, intervalMs = 500) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const tryOnce = () => {
+      http
+        .get(url, (res) => {
+          res.resume();
+          resolve(true);
+        })
+        .on("error", () => {
+          if (Date.now() >= deadline) {
+            resolve(false);
+            return;
+          }
+          setTimeout(tryOnce, intervalMs);
+        });
+    };
+    tryOnce();
+  });
+}
+
+// ─── Windows ────────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -193,15 +260,63 @@ function createWindow() {
     }
   });
 
-  // Give backend.exe and the frontend server a moment to come up, then swap
-  // the loading screen for the real app once both respond.
-  setTimeout(() => {
-    waitFor(BACKEND_URL, () => {
-      waitFor(FRONTEND_URL, () => {
-        mainWindow?.loadURL(FRONTEND_URL);
-      });
-    });
-  }, 3000);
+  return mainWindow;
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function showErrorScreen(message) {
+  log(`Showing startup error screen: ${message}`);
+  const recentLogs = backendLogLines.slice(-50).join("\n") || "(no backend output captured)";
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JustDial Pro</title>
+    <style>
+      body { margin: 0; padding: 24px; background: #0f172a; color: #e2e8f0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+      h1 { font-size: 16px; color: #f87171; }
+      p { font-size: 13px; color: #94a3b8; }
+      pre { background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow-y: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>JustDial Pro failed to start</h1>
+    <p>${escapeHtml(message)}</p>
+    <p>Full log file: ${escapeHtml(getLogFilePath())}</p>
+    <p>Recent backend output:</p>
+    <pre>${escapeHtml(recentLogs)}</pre>
+  </body>
+</html>`;
+  mainWindow?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+async function bootApp() {
+  createWindow();
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    if (validatedURL.startsWith("data:")) return; // avoid looping on our own error page
+    showErrorScreen(`Failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
+  });
+
+  log(`Waiting up to ${BACKEND_READY_TIMEOUT_MS / 1000}s for backend health check at ${BACKEND_HEALTH_URL}`);
+  const backendReady = await pollUntilReady(BACKEND_HEALTH_URL, BACKEND_READY_TIMEOUT_MS);
+  if (!backendReady) {
+    showErrorScreen(`Backend did not respond at ${BACKEND_HEALTH_URL} within ${BACKEND_READY_TIMEOUT_MS / 1000} seconds.`);
+    return;
+  }
+  log("Backend is responding.");
+
+  const frontendReady = await pollUntilReady(FRONTEND_URL, 5000);
+  if (!frontendReady) {
+    showErrorScreen(`Frontend server did not respond at ${FRONTEND_URL}.`);
+    return;
+  }
+
+  log(`Loading ${FRONTEND_URL}`);
+  mainWindow.loadURL(FRONTEND_URL);
 }
 
 function createTray() {
@@ -258,20 +373,25 @@ function checkForUpdates() {
     autoUpdater.quitAndInstall();
   });
 
-  autoUpdater.on("error", (err) => console.error("[autoUpdater]", err));
+  autoUpdater.on("error", (err) => log(`ERROR: [autoUpdater] ${err.message}`));
 
-  autoUpdater.checkForUpdates().catch((err) => console.error("[autoUpdater] check failed:", err));
+  autoUpdater.checkForUpdates().catch((err) => log(`ERROR: [autoUpdater] check failed: ${err.message}`));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  initLogging();
+
+  process.on("uncaughtException", (err) => log(`ERROR: uncaughtException: ${err.stack || err.message}`));
+  process.on("unhandledRejection", (err) => log(`ERROR: unhandledRejection: ${err?.stack || err}`));
+
   startBackend();
-  startFrontendServer();
+  await startFrontendServer();
   createTray();
-  createWindow();
+  await bootApp();
   checkForUpdates();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) bootApp();
     else mainWindow?.show();
   });
 });
