@@ -88,7 +88,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='backend',
+    name='JustDial_Scraper',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
