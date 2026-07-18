@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JustDial Pro</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+      }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 3px solid rgba(226, 232, 240, 0.2);
+        border-top-color: #2563eb;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      p {
+        font-size: 13px;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="spinner"></div>
+    <p>Starting JustDial Pro…</p>
+  </body>
+</html>
