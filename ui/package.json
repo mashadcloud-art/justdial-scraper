@@ -1,15 +1,20 @@
 {
   "name": "tanstack_start_ts",
+  "version": "1.0.0",
+  "description": "JustDial Pro Scraper desktop app",
+  "author": "JustDial Pro",
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "main": "electron-main.js",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "dist": "electron-builder --win"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -48,6 +53,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "electron-updater": "^6.8.9",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
@@ -72,6 +78,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -83,5 +91,45 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16"
+  },
+  "build": {
+    "appId": "com.justdial.scraper",
+    "productName": "JustDial Pro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron-main.js",
+      "electron-resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/backend.exe",
+        "to": "backend.exe"
+      },
+      {
+        "from": "dist/client",
+        "to": "ui/dist/client"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "electron-resources/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "JustDialPro_Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "mashadcloud-art",
+      "repo": "justdial-scraper"
+    }
   }
 }

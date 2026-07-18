@@ -1,0 +1,68 @@
+name: Build Windows Installer
+
+# This has to run on a real Windows box: PyInstaller only cross-compiles for
+# the OS it runs on, and electron-builder's NSIS signing step shells out to
+# signtool.exe (a native Windows PE binary), so a Linux/macOS runner can't
+# produce this artifact.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller psutil
+
+      - name: Build backend.exe
+        run: pyinstaller backend.spec
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ui
+        run: npm run build
+
+      - name: Build Windows installer
+        working-directory: ui
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JustDialPro_Setup
+          path: ui/release/JustDialPro_Setup.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ui/release/JustDialPro_Setup.exe
+          name: JustDial Pro ${{ github.ref_name }}
+          body: "JustDial Pro ${{ github.ref_name }} - First stable release"

@@ -13,6 +13,8 @@ import {
   Database,
   Download,
   ExternalLink,
+  Laptop,
+  Monitor,
   FileSpreadsheet,
   Gauge,
   Image as ImageIcon,
@@ -58,6 +60,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ALL_GRANULAR_CATEGORIES } from "@/lib/allCategories";
 
@@ -2219,6 +2229,38 @@ function Dashboard() {
               <Search className="size-3.5 text-muted-foreground shrink-0" />
               <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search..." className="bg-transparent text-xs flex-1 outline-none placeholder:text-muted-foreground" />
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button title="Download desktop app" className="size-8 rounded-lg ring-1 ring-border bg-card flex items-center justify-center hover:bg-accent transition-colors">
+                  <Download className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Download Desktop App</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <a
+                    href="https://github.com/mashadcloud-art/justdial-scraper/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                    <AppWindow className="size-4" />
+                    <span className="flex-1">Download Windows Installer</span>
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled className="flex items-center gap-2 opacity-50">
+                  <Laptop className="size-4" />
+                  <span className="flex-1">Mac</span>
+                  <span className="text-[10px] text-muted-foreground">Coming Soon</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled className="flex items-center gap-2 opacity-50">
+                  <Monitor className="size-4" />
+                  <span className="flex-1">Linux</span>
+                  <span className="text-[10px] text-muted-foreground">Coming Soon</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button onClick={toggle} className="size-8 rounded-lg ring-1 ring-border bg-card flex items-center justify-center hover:bg-accent transition-colors" aria-label="Toggle theme">
               {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
             </button>
