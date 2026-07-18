@@ -1,38 +1,31 @@
 import os
-from pydantic_settings import BaseSettings
 from app_config import CONFIG as APP_CONFIG
 
 # Get data folder from app_config, or use default
 DATA_FOLDER = APP_CONFIG["data"]["folder"]
 os.makedirs(DATA_FOLDER, exist_ok=True)
 
-class Settings(BaseSettings):
-    # Base data folder (all other paths are relative to this)
-    DATA_FOLDER: str = DATA_FOLDER
-    
-    # Lowercase field for Pydantic to load from environment or .env file
-    database_url: str | None = None
-    
-    # Database connection (use environment override, app_config, or default SQLite)
+class Settings:
+    """Simple settings container without external dependencies."""
+    DATA_FOLDER = DATA_FOLDER
+    # Database URL – env var overrides config, else fallback to config or SQLite
     @property
     def DATABASE_URL(self) -> str:
-        if self.database_url:
-            return self.database_url
-        if APP_CONFIG["database"]["url"]:
-            return APP_CONFIG["database"]["url"]
-        # Default SQLite DB in data folder
+        # Environment variable takes precedence
+        env_url = os.getenv("DATABASE_URL")
+        if env_url:
+            return env_url
+        # Config file URL if present
+        cfg_url = APP_CONFIG.get("database", {}).get("url")
+        if cfg_url:
+            return cfg_url
+        # Default to local SQLite DB in the data folder
         db_path = os.path.join(self.DATA_FOLDER, "justdial.db")
-        return f"sqlite:///{db_path.replace(os.sep, '/')}"
-    
-    # API settings
-    API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
-    
-    # Cloud API URL (from app_config or default)
-    CLOUD_API_URL: str = APP_CONFIG["api"]["backend_url"]
-    
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+        return f"sqlite:///{db_path.replace(os.sep, '/') }"
+
+    API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+    API_PORT: int = int(os.getenv("API_PORT", "8000"))
+
+    CLOUD_API_URL: str = APP_CONFIG.get("api", {}).get("backend_url", "")
 
 settings = Settings()

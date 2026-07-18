@@ -70,8 +70,15 @@ def get_pincodes_for_district(district_name: str):
         print(f"Error reading pincodes: {e}")
         return []
 
-from fastapi import APIRouter
-router = APIRouter(prefix="/api/v1/pincodes", tags=["pincodes"])
+try:
+    from fastapi import APIRouter
+    router = APIRouter(prefix="/api/v1/pincodes", tags=["pincodes"])
+except ImportError:
+    # Dummy router for headless mode (no API server)
+    class DummyRouter:
+        def get(self, *args, **kwargs):
+            return lambda f: f
+    router = DummyRouter()
 
 @router.get("/famous-places")
 def get_famous_places(district: str):

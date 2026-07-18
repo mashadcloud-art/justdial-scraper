@@ -33,6 +33,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from app.api.pincodes import get_pincodes_for_district
 
+def get_data_dir() -> str:
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        path = os.path.join(local_appdata, "justdial-scraper", "data")
+    else:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    os.makedirs(path, exist_ok=True)
+    return path
+
 # ─── JustDial API Config ──────────────────────────────────────────────────────
 # Extracted from Android app traffic via MITM proxy
 JD_API_BASE = "https://win.justdial.com/01march2019/searchziva.php"
@@ -558,7 +567,7 @@ async def scrape_jd_api_async(session, target_location: str, category: str, limi
 
     proxy_url = proxy_config["http"] if proxy_config and "http" in proxy_config else None
 
-    MAX_RETRIES = 6
+    MAX_RETRIES = 2
     data = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -569,14 +578,14 @@ async def scrape_jd_api_async(session, target_location: str, category: str, limi
                     new_proxy = get_random_proxy()
                     if new_proxy and "http" in new_proxy:
                         proxy_url = new_proxy["http"]
-            async with session.get(JD_API_BASE, params=params, headers=headers, proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            async with session.get(JD_API_BASE, params=params, headers=headers, proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
                 break
         except Exception as e:
             if attempt == MAX_RETRIES:
                 return {"columns": [], "rows": [], "raw": {}, "next_cursor": None}
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
     if data is None:
         return {"columns": [], "rows": [], "raw": {}, "next_cursor": None}
@@ -841,10 +850,9 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     await asyncio.to_thread(load_cache)
     log(f"[INFO] Cached {len(existing_phones)} phones and {len(existing_names_districts)} listings.")
 
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    flag_path = os.path.join(current_dir, "data", "scrape_stop.flag")
-    checkpoint_path = os.path.join(current_dir, "data", f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
-    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    data_dir = get_data_dir()
+    flag_path = os.path.join(data_dir, "scrape_stop.flag")
+    checkpoint_path = os.path.join(data_dir, f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
     try:
         with open(checkpoint_path, "r") as f:
             checkpoint = json.load(f)
@@ -887,8 +895,7 @@ async def scrape_jwt_city_async(district: str, category: str, pages: int = 3, li
         if subcats:
             total_ins, total_upd = 0, 0
             
-            checkpoint_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-            os.makedirs(checkpoint_dir, exist_ok=True)
+            checkpoint_dir = get_data_dir()
             checkpoint_path = os.path.join(checkpoint_dir, "scrape_progress.json")
             try:
                 with open(checkpoint_path, "r") as f:
@@ -952,8 +959,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
             total_upd = 0
 
             # ── Checkpoint system: resume from where we stopped ──────────────
-            checkpoint_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
-            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+            checkpoint_path = os.path.join(get_data_dir(), f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
             try:
                 with open(checkpoint_path, "r") as f:
                     checkpoint = json.load(f)
@@ -1055,13 +1061,12 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
     import random
 
     # Determine stop flag path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    flag_path = os.path.join(current_dir, "data", "scrape_stop.flag")
+    data_dir = get_data_dir()
+    flag_path = os.path.join(data_dir, "scrape_stop.flag")
 
     def save_last_run_status(status_str, current_target=None):
         try:
-            status_file = os.path.join(current_dir, "data", "last_scrape_run.json")
-            os.makedirs(os.path.dirname(status_file), exist_ok=True)
+            status_file = os.path.join(data_dir, "last_scrape_run.json")
             data = {
                 "district": district,
                 "category": category,
@@ -1082,8 +1087,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
     save_last_run_status("running")
 
     # ── Target Checkpoint system: resume from where we stopped ──────────────
-    checkpoint_path = os.path.join(current_dir, "data", f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
-    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    checkpoint_path = os.path.join(data_dir, f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
     try:
         with open(checkpoint_path, "r") as f:
             checkpoint = json.load(f)

@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings
 from app.database import engine, Base
+from app import models
 
 
 # Create tables asynchronously in a background thread to prevent blocking server startup
@@ -64,13 +65,6 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
-
-
-# Polled by the Electron desktop app on startup to know when the backend is
-# actually ready to serve requests (see ui/electron-main.cjs).
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
 
 
 # ─── Feature modules (app/modules/<name>/) ───────────────────────────────────
