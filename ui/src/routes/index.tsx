@@ -2240,9 +2240,8 @@ function Dashboard() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <a
-                    href="https://github.com/mashadcloud-art/justdial-scraper/releases/latest"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="https://github.com/mashadcloud-art/justdial-scraper/releases/download/v1.0.0/JustDialPro_Setup.exe"
+                    download="JustDialPro_Setup.exe"
                     className="flex items-center gap-2 cursor-pointer"
                   >
                     <AppWindow className="size-4" />
