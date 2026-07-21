@@ -509,7 +509,8 @@ def scrape_city(district: str, main_cat: str, subcat: str, max_limit=10, fast_mo
             if page_num > 1:
                 log(f"Loading page {page_num}: {current_url}")
                 safe_get(driver, current_url)
-            
+                time.sleep(3)  # let client-side JS hydrate __NEXT_DATA__/listing cards before we read page_source
+
             # Scroll to load all lazy content
             scroll_until_stable(driver, max_rounds=6)
             

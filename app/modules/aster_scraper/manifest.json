@@ -1,0 +1,8 @@
+{
+  "name": "aster_scraper",
+  "version": "1.0.0",
+  "description": "Scrape Aster Hospitals (asterhospitals.in) hospital pages and doctor listings into aster_hospitals / aster_doctors",
+  "author": "Scapre",
+  "prefix": "/api/v1/aster_scraper",
+  "routes": 3
+}

@@ -1,0 +1,8 @@
+{
+  "name": "jd_discovery",
+  "version": "1.0.0",
+  "description": "Stage 1: scroll JustDial search-results pages and save each listing's URL/name/area/rating/category/image URLs, without visiting individual listing pages",
+  "author": "Scapre",
+  "prefix": "/api/v1/jd_discovery",
+  "routes": 2
+}

@@ -1,0 +1,8 @@
+{
+  "name": "jwt_scraper",
+  "version": "1.0.0",
+  "description": "Desktop jwt_api engine — fully independent orchestrator, stop flag, and log stream, no knowledge of ADB/mobile scraping",
+  "author": "Scapre",
+  "prefix": "/api/v1/jwt_scraper",
+  "routes": 3
+}

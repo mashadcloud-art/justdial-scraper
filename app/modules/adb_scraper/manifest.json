@@ -1,0 +1,8 @@
+{
+  "name": "adb_scraper",
+  "version": "1.0.0",
+  "description": "ADB/emulator UI-automation engine — fully independent orchestrator, stop flag, and log stream. Captures to a local JSON folder (via MITM); sync pushes it to Supabase explicitly.",
+  "author": "Scapre",
+  "prefix": "/api/v1/adb_scraper",
+  "routes": 4
+}

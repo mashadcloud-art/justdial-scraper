@@ -54,6 +54,18 @@ hiddenimports = [
     'psycopg2',
     'email.mime.multipart',
     'email.mime.text',
+    'aiohttp',
+    'jd_api_scraper',
+    'app.scraper.jwt_logger',
+    'app.scraper.adb_logger',
+    'app.scraper.deep_category_scraper',
+    'app.scraper.adb_location_search',
+    'app.modules.jwt_scraper',
+    'app.modules.jwt_scraper.router',
+    'app.modules.jwt_scraper.service',
+    'app.modules.adb_scraper',
+    'app.modules.adb_scraper.router',
+    'app.modules.adb_scraper.service',
 ]
 
 a = Analysis(

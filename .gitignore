@@ -33,3 +33,5 @@ chrome_user_data_test/
 *.html
 *.png
 *.xml
+
+dist-installer-build/

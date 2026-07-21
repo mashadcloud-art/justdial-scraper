@@ -391,12 +391,34 @@ def trigger_scrape(
     district: str,
     main_cat: str,
     subcat: str,
-    max_limit: int = 10,
+    max_limit: int = 1000,  # 0 (or blank) means unlimited — see effective_max_limit below
     start_page: int = 1,
     fast_mode: bool = False,
     engine: str = "playwright",
-    background_tasks: BackgroundTasks = None
+    force: bool = False,  # bypass the orchestrator's city+category "already scraped" marker and (for jwt_api) the per-target checkpoint file
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db),
 ):
+    # jwt_api and emulator each have their own fully independent endpoint now (own
+    # orchestrator, stop flag, log stream) — see /api/v1/jwt_scraper and
+    # /api/v1/adb_scraper. Kept out of this shared endpoint so a job on one never
+    # locks/logs-into/stops the other, or the unrelated api/playwright/selenium engines.
+    if engine in ("jwt_api", "emulator"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"engine='{engine}' has moved to its own endpoint: "
+                   f"{'/api/v1/jwt_scraper/start' if engine == 'jwt_api' else '/api/v1/adb_scraper/start'}",
+        )
+
+    from app.scraper.deep_category_scraper import cache_category_if_new
+    cache_category_if_new(db, main_cat, subcat)
+
+    # api_scrape_city/playwright_scrape_city treat the string "All" as no cap; engines that
+    # take a plain scroll/page count (emulator, jwt_api) can't express "All", so they get a
+    # large sentinel instead. Either way, 0/blank from the UI now means "don't silently cap".
+    effective_max_limit = "All" if max_limit <= 0 else max_limit
+    emulator_max_limit = 999999 if max_limit <= 0 else max_limit
+
     service.clear_stop_flag()
     if service.scraping_in_progress:
         # Auto-expire lock if stuck for more than 30 minutes
@@ -431,36 +453,29 @@ def trigger_scrape(
             for city in cities:
                 if city == "All": continue
 
-                if city in completed_cities:
+                if city in completed_cities and not force:
                     log(f"⏭️ Skipping {city}: already scraped for {progress_key}.")
                     continue
 
                 log(f"--- Starting scrape for {city} ---")
+                got_results = True  # engines without a result signal keep today's behavior (always marked complete)
                 try:
                     if engine == "api":
-                        api_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                        api_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                     elif engine == "api_edge":
-                        api_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                        api_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
                     elif engine == "playwright":
-                        playwright_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                        playwright_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
                     elif engine == "playwright_edge":
-                        playwright_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
+                        playwright_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
                     elif engine == "edge":
-                        selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
-                    elif engine == "emulator":
-                        search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
-                        areas = get_areas_for_district(city)
-                        log(f"ADB Emulator: '{search_cat}' in '{city}' — {len(areas)} areas to search: {', '.join(areas)}")
-                        automate_location_search(areas, search_cat, scrolls=max_limit, city=city)
-                    elif engine == "jwt_api":
-                        from jd_api_scraper import scrape_jwt_city
-                        search_cat = subcat if (subcat and subcat not in ["All", "—"]) else main_cat
-                        scrape_jwt_city(city, search_cat, pages=max_limit, limit=100, dry_run=False)
+                        selenium_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="edge")
                     else:
-                        selenium_scrape_city(city, main_cat, subcat, max_limit=max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
+                        selenium_scrape_city(city, main_cat, subcat, max_limit=effective_max_limit, fast_mode=fast_mode, start_page=start_page, browser_type="chrome")
 
-                    completed_cities.add(city)
-                    progress_history[progress_key] = list(completed_cities)
+                    if got_results:
+                        completed_cities.add(city)
+                        progress_history[progress_key] = list(completed_cities)
                     try:
                         with open(progress_file, "w") as f:
                             json.dump(progress_history, f, indent=4)

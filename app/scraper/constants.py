@@ -146,6 +146,7 @@ MAPPED_SUBCATEGORIES = {
         "Pure Veg Thali Restaurants", "Non Veg Thali Restaurants", "Chinese Restaurants",
         "Punjabi Restaurants", "Steak Restaurants", "Fusion Restaurants",
         "Kerala Restaurants", "Arabic Restaurants", "Biryani Delivery Restaurants", 
+        "Pure Veg Restaurants", "Veg Restaurants", "Vegetarian Restaurants",
         "Biryani Restaurants", "Breakfast Restaurants", "Buffet Restaurants", 
         "Dinner Restaurants", "Hyderabadi Restaurants", "Lunch Restaurants", 
         "Moderate Arabic Restaurants Rs 500 To Rs 1000", "Moderate Biryani Restaurants Rs 500 To Rs 1000", 
@@ -236,6 +237,24 @@ MAPPED_SUBCATEGORIES = {
         "Marble Brick Manufacturers", "Marble Chip Dealers", "Marble Chip Manufacturers", 
         "Marble Contractors", "Marble Dealers-Wonder White", "Marble Distributors", 
         "Marble Exporters", "Marble Flooring Contractors"
+    ],
+    "Car Dealers": [
+        "Car Dealers", "Used Car Dealers", "Second Hand Car Dealers", "New Car Dealers",
+        "Second Hand Car Buyers", "Used Car Buyers", "Car Showrooms", "Luxury Car Dealers",
+        "Second Hand Luxury Car Dealers", "Commercial Vehicle Dealers",
+        "Maruti Suzuki Car Dealers", "Hyundai Car Dealers", "Mahindra Car Dealers", 
+        "Tata Motor Car Dealers", "Toyota Car Dealers", "Honda Car Dealers", 
+        "Volkswagen Car Dealers", "Ford Car Dealers", "Renault Car Dealers",
+        "Nissan Car Dealers", "Skoda Car Dealers", "Jeep Car Dealers",
+        "MG Motor Car Dealers", "Kia Car Dealers", "Audi Car Dealers",
+        "BMW Car Dealers", "Mercedes Benz Car Dealers", "Volvo Car Dealers",
+        "Maruti Suzuki Showrooms", "Hyundai Showrooms", "Mahindra Showrooms",
+        "Tata Showrooms", "Toyota Showrooms", "Honda Showrooms", "Kia Showrooms",
+        "Maruti Suzuki Swift Dzire Dealers", "Tata Indica Dealers", 
+        "Maruti Suzuki Alto Dealers", "Maruti Suzuki Wagon R Dealers",
+        "Maruti Suzuki Eeco Dealers", "Maruti Suzuki Swift Dealers",
+        "Maruti Suzuki Ertiga Dealers", "Toyota Innova Dealers",
+        "Tata Safari Dealers", "Mahindra XUV Dealers"
     ]
 }
 
@@ -254,5 +273,7 @@ def get_subcategories_for_main(main_category: str) -> list[str]:
         return MAPPED_SUBCATEGORIES.get("Civil Contractors")
     if key.lower() in ("marble dealers", "granite dealers", "marble & granite"):
         return MAPPED_SUBCATEGORIES.get("Marble Dealers")
+    if key.lower() in ("car dealers", "car dealer", "used car dealers", "second hand car dealers"):
+        return MAPPED_SUBCATEGORIES.get("Car Dealers")
     return MAPPED_SUBCATEGORIES.get(key, [])
 

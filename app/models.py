@@ -304,4 +304,51 @@ class JDCategoryMap(Base):
     subcategory = Column(String(200), nullable=False)
     tags = Column(String(300), nullable=True)
     city = Column(String(100), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_name = Column(String(200), nullable=True)  # canonical category name JD's search index actually recognizes, from a live redirect resolution (see resolve_category())
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ==========================================
+# NEW: ASTER HOSPITALS SCRAPER
+# ==========================================
+class AsterHospital(Base):
+    __tablename__ = "aster_hospitals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    aster_id = Column(Integer, unique=True, index=True, nullable=False)  # numeric id from the given slug-id (e.g. 1300)
+    slug = Column(String(200), nullable=False)  # doctors-listing slug, e.g. aster-mims-kannur
+    detail_slug = Column(String(200), nullable=True)  # /hospitals/{slug} slug — sometimes differs from the doctors-listing slug
+    name = Column(String(300), nullable=True)
+    address = Column(Text, nullable=True)
+    phone = Column(String(100), nullable=True)
+    helpline = Column(String(300), nullable=True)
+    email = Column(String(200), nullable=True)
+    specialities = Column(Text, nullable=True)  # comma-joined
+    facilities = Column(Text, nullable=True)  # comma-joined, best-effort (site has no dedicated facilities section on every page)
+    about = Column(Text, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    map_link = Column(Text, nullable=True)
+    source_url = Column(Text, nullable=True)
+    status = Column(String(20), default="pending")  # pending, scraped, failed
+    doctors_status = Column(String(20), default="pending")  # pending, scraped, failed
+    doctor_count = Column(Integer, default=0)
+    error_detail = Column(Text, nullable=True)
+    scraped_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AsterDoctor(Base):
+    __tablename__ = "aster_doctors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_aster_id = Column(Integer, ForeignKey("aster_hospitals.aster_id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(300), nullable=False)
+    detail_url = Column(Text, nullable=False, unique=True)  # dedup key
+    designation = Column(String(300), nullable=True)
+    qualifications = Column(String(500), nullable=True)
+    speciality = Column(String(300), nullable=True)
+    hospital_name_raw = Column(String(300), nullable=True)  # hospital name exactly as shown on the doctor card, for QA
+    bio_snippet = Column(Text, nullable=True)
+    scraped_at = Column(DateTime, default=datetime.utcnow)

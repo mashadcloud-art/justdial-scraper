@@ -1,6 +1,6 @@
 {
   "name": "tanstack_start_ts",
-  "version": "2.0.0",
+  "version": "2.3.0",
   "description": "JustDial Scraper Desktop App",
   "author": "Mashad Cloud",
   "private": true,
@@ -11,7 +11,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "electron:dev": "electron .",
-    "electron:build": "vite build && electron-builder",
+    "electron:build": "vite build --config vite.config.electron.ts && electron-builder",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -100,12 +100,16 @@
     },
     "extraResources": [
       {
-        "from": "../JustDial_Scraper.exe",
+        "from": "../dist/backend.exe",
         "to": "backend.exe"
       },
       {
         "from": "dist/client",
         "to": "ui/dist/client"
+      },
+      {
+        "from": "../config.yaml",
+        "to": "config.yaml"
       }
     ],
     "directories": {

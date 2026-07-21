@@ -306,13 +306,13 @@ function Dashboard() {
   // No auto-resize logic — layout is driven purely by maximize toggle
 
   // Scraper form
-  const [state, setState] = useState("Kerala");
-  const [city, setCity] = useState("Ernakulam");
-  const [category, setCategory] = useState("Restaurants");
-  const [subcategory, setSubcategory] = useState("Fast Food");
-  const [maxEntries, setMaxEntries] = useState(10);
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+  const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  const [maxEntries, setMaxEntries] = useState(0); // 0 = unlimited (Scraper tab); other tabs clamp this to >=1 on their own inputs
   const [fastMode, setFastMode] = useState(false);
-  const [cliCommand, setCliCommand] = useState("python jd_api_scraper.py --district Kozhikode --category \"Hotels & Restaurants\" --subcategories --pages 5 --limit 100");
+  const [cliCommand, setCliCommand] = useState("");
   const [singleUrl, setSingleUrl] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [listingCount, setListingCount] = useState<string | null>(null);
@@ -1415,6 +1415,10 @@ function Dashboard() {
   }, [dbFilterState, dbFilterDistrict, dbFilterCategory, searchQuery]);
 
   useEffect(() => {
+    if (!state) {
+      setCity("");
+      return;
+    }
     const cities = CITIES[state] ?? [];
     setCity(cities[0] ?? "");
     setListingCount(null);
@@ -2402,10 +2406,6 @@ function Dashboard() {
                         <div className="flex items-center gap-2">
                           <MapPin className="size-4 text-brand" />
                           <h3 className="text-base font-semibold">Location & Category</h3>
-                          {fetchingCount && <span className="text-xs text-muted-foreground animate-pulse ml-2">checking...</span>}
-                          {listingCount && !fetchingCount && (
-                            <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
-                          )}
                         </div>
                         <button 
                           onClick={() => setImportHtmlOpen(true)}
@@ -2425,27 +2425,33 @@ function Dashboard() {
                         />
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <FormField label="State / UT"><StyledSelectLg value={state} onChange={setState} options={STATES} /></FormField>
-                        <FormField label="District / City"><StyledSelectLg value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
+                        <FormField label="State / UT"><StyledSelectLg value={state} onChange={setState} options={["Select State...", ...STATES]} /></FormField>
+                        <FormField label="District / City"><StyledSelectLg value={city} onChange={setCity} options={cities.length ? ["Select City...", ...cities] : ["Select State First"]} /></FormField>
                         <FormField label="Main Category">
-                          <StyledSelectLg
+                          <TypeaheadInput
                             value={category}
                             onChange={setCategory}
                             options={CATEGORIES}
-                            counts={Object.fromEntries(categoryCounts.map((c) => [c.category, c.count]))}
+                            listId="main-category-suggestions-lg"
+                            placeholder="Type any category…"
+                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                           />
                         </FormField>
                         <FormField label="Subcategory">
-                          <StyledSelectLg
+                          <TypeaheadInput
                             value={subcategory}
                             onChange={setSubcategory}
                             options={getSubcategoryOptions()}
+                            listId="subcategory-suggestions-lg"
+                            placeholder="Type any subcategory…"
+                            className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                           />
                         </FormField>
-                        <FormField label="Max Entries">
+                        <FormField label="Max Entries (blank/0 = unlimited)">
                           <input
-                            type="number" min={1} max={500} value={maxEntries}
-                            onChange={(e) => setMaxEntries(Math.max(1, Number(e.target.value)))}
+                            type="number" min={0} value={maxEntries || ""}
+                            placeholder="Unlimited"
+                            onChange={(e) => setMaxEntries(Math.max(0, Number(e.target.value) || 0))}
                             className="w-full h-10 rounded-lg px-3 text-sm bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                           />
                         </FormField>
@@ -2930,10 +2936,6 @@ function Dashboard() {
                     <div className="flex items-center gap-2">
                       <MapPin className="size-3.5 text-brand" />
                       <h3 className="text-xs font-semibold tracking-tight">Location & Category</h3>
-                      {fetchingCount && <span className="text-[9px] text-muted-foreground animate-pulse">checking...</span>}
-                      {listingCount && !fetchingCount && (
-                        <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-semibold">{listingCount}</span>
-                      )}
                     </div>
 
                     {/* Search */}
@@ -2948,27 +2950,31 @@ function Dashboard() {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <FormField label="State / UT"><StyledSelect value={state} onChange={setState} options={STATES} /></FormField>
-                      <FormField label="District / City"><StyledSelect value={city} onChange={setCity} options={cities.length ? cities : ["—"]} /></FormField>
+                      <FormField label="State / UT"><StyledSelect value={state} onChange={setState} options={["Select State...", ...STATES]} /></FormField>
+                      <FormField label="District / City"><StyledSelect value={city} onChange={setCity} options={cities.length ? ["Select City...", ...cities] : ["Select State First"]} /></FormField>
                       <FormField label="Main Category">
-                        <StyledSelect
+                        <TypeaheadInput
                           value={category}
                           onChange={setCategory}
                           options={CATEGORIES}
-                          counts={Object.fromEntries(categoryCounts.map((c) => [c.category, c.count]))}
+                          listId="main-category-suggestions-sm"
+                          placeholder="Type any category…"
                         />
                       </FormField>
                       <FormField label="Subcategory">
-                        <StyledSelect
+                        <TypeaheadInput
                           value={subcategory}
                           onChange={setSubcategory}
                           options={getSubcategoryOptions()}
+                          listId="subcategory-suggestions-sm"
+                          placeholder="Type any subcategory…"
                         />
                       </FormField>
-                      <FormField label="Max Entries">
+                      <FormField label="Max Entries (0 = unlimited)">
                         <input
-                          type="number" min={1} max={500} value={maxEntries}
-                          onChange={(e) => setMaxEntries(Math.max(1, Number(e.target.value)))}
+                          type="number" min={0} value={maxEntries || ""}
+                          placeholder="Unlimited"
+                          onChange={(e) => setMaxEntries(Math.max(0, Number(e.target.value) || 0))}
                           className="w-full h-8 rounded-lg px-2 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"
                         />
                       </FormField>
@@ -5402,10 +5408,39 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function StyledSelect({ value, onChange, options, counts }: { 
-  value: string; 
-  onChange: (v: string) => void; 
-  options: (string | { label: string; value: string; indent?: number; parent?: string; hasChildren?: boolean })[]; 
+// Free-text input with a native <datalist> of suggestions — unlike StyledSelect this never
+// blocks typing a value that isn't in `options` (e.g. a category missing from jd_category_map).
+function TypeaheadInput({ value, onChange, options, listId, placeholder, className }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: (string | { label: string; value: string })[];
+  listId: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  const flatOptions = options
+    .map((o) => (typeof o === "string" ? o : o.value))
+    .filter((o) => o && o !== "All" && o !== "—");
+  return (
+    <>
+      <input
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "Type or pick a suggestion…"}
+        className={className || "w-full h-8 rounded-lg px-2.5 text-xs bg-background ring-1 ring-border outline-none focus:ring-brand transition-all"}
+      />
+      <datalist id={listId}>
+        {flatOptions.map((o) => <option key={o} value={o} />)}
+      </datalist>
+    </>
+  );
+}
+
+function StyledSelect({ value, onChange, options, counts }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: (string | { label: string; value: string; indent?: number; parent?: string; hasChildren?: boolean })[];
   counts?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);

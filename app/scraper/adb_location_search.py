@@ -8,7 +8,7 @@ from typing import List
 import xml.etree.ElementTree as ET
 
 try:
-    from app.scraper.logger import log
+    from app.scraper.adb_logger import log  # dedicated stream — never shared with jwt_api or the generic engines
 except ImportError:
     def log(msg: str, ok: bool = True):
         timestamp = time.strftime("%H:%M:%S")
@@ -167,17 +167,14 @@ def human_delay(min_sec=1.0, max_sec=2.5):
     time.sleep(sleep_time)
 
 def check_stop_flag() -> bool:
-    """Check if the user requested to stop the scraper."""
+    """Check if the user requested to stop the ADB scraper — dedicated flag file,
+    never shared with jwt_api's or the generic /api/v1/scrape endpoint's."""
     import os
-    paths = [
-        "data/scrape_stop.flag",
-        "../../data/scrape_stop.flag",
-        os.path.join(os.path.dirname(__file__), "..", "..", "data", "scrape_stop.flag")
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return True
-    return False
+    try:
+        from config import settings
+        return os.path.exists(os.path.join(settings.DATA_FOLDER, "adb_scrape_stop.flag"))
+    except Exception:
+        return os.path.exists("data/adb_scrape_stop.flag")  # fallback if config isn't importable here
 
 def find_element_center(resource_id_kw: str = None, text_kw: str = None, class_kw: str = None) -> tuple:
     """

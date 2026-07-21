@@ -114,6 +114,96 @@ def save_html_subcategories_to_map(db, main_category: str, html_content: str, ci
     return saved
 
 
+def cache_category_if_new(db, main_category: str, subcategory: str | None, city: str | None = None):
+    """
+    Called whenever the Scraper tab runs a search with a typed (not dropdown-selected)
+    category/subcategory. JustDial itself resolves whatever slug we hand it (see
+    scrape_city()'s canonical-URL resolution) — there's no separate lookup needed to make
+    the search work. This just remembers the pair in jd_category_map so it shows up as a
+    suggestion next time, the same table deep_scrape already reads subcategories from.
+    """
+    main_category = (main_category or "").strip()
+    subcategory = (subcategory or "").strip()
+    if not main_category or not subcategory or subcategory.lower() in ("all", "—"):
+        return
+    exists = db.query(models.JDCategoryMap).filter(
+        models.JDCategoryMap.main_category.ilike(main_category),
+        models.JDCategoryMap.subcategory.ilike(subcategory),
+    ).first()
+    if exists:
+        return
+    db.add(models.JDCategoryMap(main_category=main_category, subcategory=subcategory, tags=None, city=city))
+    db.commit()
+
+
+def resolve_category(db, district: str, category: str) -> tuple[str, str | None]:
+    """
+    The jwt_api engine's internal search only returns real results when the category
+    string matches JustDial's own taxonomy exactly ("Cycle Dealers" works as typed,
+    "Car Dealers" silently returns 0 for every target). jd_category_map is a CACHE for
+    the resolved name, never a gate — on a cache miss we resolve live the same way a
+    browser search would: load https://justdial.com/<district>/<category-slug> and
+    follow its redirect to the canonical .../nct-<id> URL, whose slug is the name JD's
+    index actually recognizes. Falls back to the typed text (with a clear log line, not
+    a silent one) if resolution fails, so a scrape never gets blocked by a cache miss.
+    """
+    category = (category or "").strip()
+    district = (district or "").strip()
+    if not category or not district:
+        return category, None
+
+    cached = db.query(models.JDCategoryMap).filter(
+        models.JDCategoryMap.main_category.ilike(category),
+    ).filter(
+        (models.JDCategoryMap.city == district) | (models.JDCategoryMap.city.is_(None))
+    ).first()
+    if cached and cached.resolved_name:
+        return cached.resolved_name, cached.tags
+
+    resolved = category
+    ncatid = None
+    try:
+        from playwright.sync_api import sync_playwright
+
+        slug_url = f"https://www.justdial.com/{district.replace(' ', '-')}/{category.replace(' ', '-')}"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ).new_page()
+            page.goto(slug_url, timeout=30000)
+            final_url = slug_url
+            for _ in range(15):
+                if "nct-" in page.url:
+                    final_url = page.url
+                    break
+                time.sleep(1)
+            browser.close()
+
+        match = re.search(r'justdial\.com/[^/]+/([^/]+)/nct-(\d+)', final_url)
+        if match:
+            resolved = match.group(1).replace("-", " ").strip()
+            ncatid = match.group(2)
+            print(f"[category-resolve] '{category}' in '{district}' -> '{resolved}' (ncatid={ncatid}, via {final_url})")
+        else:
+            print(f"[category-resolve] ERROR: no nct- redirect found for '{category}' in '{district}' "
+                  f"(ended at {final_url}) — falling back to the typed text as-is.")
+    except Exception as e:
+        print(f"[category-resolve] ERROR resolving '{category}' in '{district}': {e!r} — falling back to the typed text as-is.")
+
+    exists = db.query(models.JDCategoryMap).filter(
+        models.JDCategoryMap.main_category.ilike(category),
+        models.JDCategoryMap.city == district,
+    ).first()
+    if exists:
+        exists.resolved_name = resolved
+        exists.tags = ncatid
+    else:
+        db.add(models.JDCategoryMap(main_category=category, subcategory=category, resolved_name=resolved, tags=ncatid, city=district))
+    db.commit()
+    return resolved, ncatid
+
+
 def save_subcategories_to_db(db, city: str, parent_category: str, subcats: list[dict]) -> list[str]:
     """Persist newly-discovered subcategories to jd_categories (skips ones already saved)."""
     names = []
@@ -259,7 +349,20 @@ def run_deep_scrape_job(job_id: str, url: str, mode: str, manual_subcategories: 
         _log(db, job_id, f"Job started: {mode} mode for '{category_name}' ({origin_city})")
 
         if mode == "state":
-            target_cities = [d for d in CITIES.get("Kerala", []) if d != "All"]
+            # Attempt to find which state origin_city belongs to
+            target_state = "Kerala"
+            clean_origin = re.sub(r'[\(\)]', '', origin_city.lower()).replace(' ', '')
+            for state_name, districts in CITIES.items():
+                matched = False
+                for d in districts:
+                    clean_d = re.sub(r'[\(\)]', '', d.lower()).replace(' ', '')
+                    if clean_origin == clean_d or clean_origin in clean_d or clean_d in clean_origin:
+                        target_state = state_name
+                        matched = True
+                        break
+                if matched:
+                    break
+            target_cities = [d for d in CITIES.get(target_state, []) if d != "All"]
         else:
             target_cities = [origin_city]
 
@@ -267,6 +370,13 @@ def run_deep_scrape_job(job_id: str, url: str, mode: str, manual_subcategories: 
 
         ensure_seed_category_map(db)
         subs = get_subcategories_from_map(db, category_name, city=origin_city)
+
+        # Fallback to constants.py mapping if DB jd_category_map is empty for this main category
+        if not subs:
+            from app.scraper.constants import get_subcategories_for_main
+            fallback_names = get_subcategories_for_main(category_name)
+            if fallback_names:
+                subs = [{"name": name, "tags": None} for name in fallback_names]
 
         # Use manual subcategories if provided and nothing found in map
         if not subs and manual_subcategories:

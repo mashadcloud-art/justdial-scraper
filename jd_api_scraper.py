@@ -1,4 +1,4 @@
-"""
+﻿"""
 JustDial Direct API Scraper
 ===========================
 Calls the JustDial internal API (same endpoint as the Android app) directly,
@@ -42,7 +42,7 @@ def get_data_dir() -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
-# ─── JustDial API Config ──────────────────────────────────────────────────────
+# â”€â”€â”€ JustDial API Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Extracted from Android app traffic via MITM proxy
 JD_API_BASE = "https://win.justdial.com/01march2019/searchziva.php"
 SECRET_KEY = "2MQkzWVlwMx44uSC3KvWGk4nYiXQ3cMicyZQP7oc8y6KcflHR9zksp2eT1YHAGQL9EYr/Bdydfmr9jVNkRRwFg=="
@@ -59,7 +59,7 @@ def get_random_proxy():
     }
 
 PROXIES = get_random_proxy()
-# NOTE: Proxy disabled for search requests — Webshare IPs are from random Indian cities
+# NOTE: Proxy disabled for search requests â€” Webshare IPs are from random Indian cities
 # (Delhi/Bangalore) causing JustDial to return wrong city results.
 # Use NO_PROXY for direct search, proxy only needed on Oracle Cloud server.
 NO_PROXY = None
@@ -165,7 +165,7 @@ def scrape_jd_api(target_location: str, category: str, limit: int = 100, nextdoc
             resp = requests.get(JD_API_BASE, params=params, headers=headers, timeout=20, proxies=current_proxy)
             resp.raise_for_status()
             data = resp.json()
-            break  # Success — exit retry loop
+            break  # Success â€” exit retry loop
         except requests.exceptions.SSLError:
             try:
                 resp = requests.get(JD_API_BASE, params=params, headers=headers, timeout=20, verify=False, proxies=NO_PROXY)
@@ -334,7 +334,7 @@ def parse_row(columns: list, row: list, district: str, category: str) -> dict:
         elif status:
             opening_hours = status
 
-    # Images — dimages contains full-resolution URLs
+    # Images â€” dimages contains full-resolution URLs
     dimages = get("dimages", [])
     orig_image = get("orig_image", "")
     dimagesthumb = get("dimagesthumb", [])
@@ -412,7 +412,7 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
     if not name:
         return False, False
 
-    # Check if listing already exists — use jd_url as primary key (always unique)
+    # Check if listing already exists â€” use jd_url as primary key (always unique)
     existing = None
     jd_url = listing_data.get("jd_url", "")
     if jd_url:
@@ -420,13 +420,16 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
             models.Listing.jd_url == jd_url
         ).first()
     if not existing and phone:
+        # Only check phone matches for listings in the same target category to avoid cross-category blocking
         existing = db.query(models.Listing).filter(
-            models.Listing.phone == phone
+            models.Listing.phone == phone,
+            (models.Listing.category.ilike(f"%{category}%") | models.Listing.subcategory.ilike(f"%{category}%"))
         ).first()
     if not existing:
         existing = db.query(models.Listing).filter(
             models.Listing.name == name,
-            models.Listing.address == listing_data.get("address", "")
+            models.Listing.address == listing_data.get("address", ""),
+            (models.Listing.category.ilike(f"%{category}%") | models.Listing.subcategory.ilike(f"%{category}%"))
         ).first()
 
     if existing:
@@ -539,7 +542,7 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
         return False, False
 
 
-async def scrape_jd_api_async(session, target_location: str, category: str, limit: int = 100, nextdocid: str = None, proxy_config = None) -> dict:
+async def scrape_jd_api_async(session, target_location: str, category: str, limit: int = 100, nextdocid: str = None, proxy_config = None, ncatid: str = None) -> dict:
     """Async JustDial API caller using aiohttp ClientSession."""
     auth_token = generate_jd_bearer_token()
     device_id = str(uuid.uuid4())
@@ -564,6 +567,8 @@ async def scrape_jd_api_async(session, target_location: str, category: str, limi
 
     if nextdocid:
         params["nextdocid"] = nextdocid
+    if ncatid:
+        params["ncatid"] = ncatid
 
     proxy_url = proxy_config["http"] if proxy_config and "http" in proxy_config else None
 
@@ -664,9 +669,9 @@ async def fetch_extended_images_async(session, doc_id: str, city: str, proxy_con
     return {}
 
 
-async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path, use_proxy: bool = False, seen_ids=None, stats=None):
+async def scrape_target_async(session, semaphore, target, district, category, limit, pages, use_area_query, dry_run, existing_phones, existing_names_districts, checkpoint, checkpoint_path, flag_path, use_proxy: bool = False, seen_ids=None, stats=None, force: bool = False, ncatid: str = None):
     """Scan a target area/pincode asynchronously."""
-    from app.scraper.logger import log
+    from app.scraper.jwt_logger import log
 
     if seen_ids is None:
         seen_ids = set()
@@ -676,13 +681,17 @@ async def scrape_target_async(session, semaphore, target, district, category, li
     def target_checkpoint_key(d, c, t):
         return f"{d.lower()}|{c.lower()}|target|{t.lower()}"
 
-    if checkpoint.get(target_checkpoint_key(district, category, target), False):
+    if not force and checkpoint.get(target_checkpoint_key(district, category, target), False):
         return 0
 
     next_cursor = None
     page_num = 0
     max_pages = pages
     local_inserted = 0
+    got_any_rows = False  # only checkpoint a target as "done" once it actually returned data â€”
+    # a target that fails/empties on its very first request (rate-limit, transient network
+    # blip, proxy hiccup) must not be permanently marked done, or every future scrape of that
+    # category+target silently returns 0 forever with no request ever logged.
 
     while page_num < max_pages:
         if os.path.exists(flag_path):
@@ -693,11 +702,11 @@ async def scrape_target_async(session, semaphore, target, district, category, li
 
         async with semaphore:
             if use_area_query:
-                result = await scrape_jd_api_async(session, district, f"{category} in {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config)
+                result = await scrape_jd_api_async(session, district, f"{category} in {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config, ncatid=ncatid)
             elif target.isdigit() and len(target) == 6:
-                result = await scrape_jd_api_async(session, district, f"{category} {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config)
+                result = await scrape_jd_api_async(session, district, f"{category} {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config, ncatid=ncatid)
             else:
-                result = await scrape_jd_api_async(session, target, category, limit=limit, nextdocid=next_cursor, proxy_config=proxy_config)
+                result = await scrape_jd_api_async(session, target, category, limit=limit, nextdocid=next_cursor, proxy_config=proxy_config, ncatid=ncatid)
 
         columns = result.get("columns", [])
         rows = result.get("rows", [])
@@ -706,6 +715,7 @@ async def scrape_target_async(session, semaphore, target, district, category, li
         if not rows:
             break
 
+        got_any_rows = True
         log(f"  [{target}] Scraping page {page_num} (got {len(rows)} results)...")
 
         page_duplicates = 0
@@ -726,10 +736,10 @@ async def scrape_target_async(session, semaphore, target, district, category, li
 
             is_dup = (doc_id and doc_id in seen_ids) or (c_phone and c_phone in existing_phones) or (name_key in existing_names_districts)
             if is_dup:
+                reason = "phone matches cache" if (c_phone and c_phone in existing_phones) else ("doc_id seen" if (doc_id and doc_id in seen_ids) else "name seen in district")
+                log(f"  [DUP SKIP] [{target}] '{listing['name']}' skipped (Reason: {reason})")
                 page_duplicates += 1
                 stats["duplicates"] += 1
-                if stats["duplicates"] % 50 == 0:
-                    log(f"  [DEDUP] Skipped {stats['duplicates']} duplicates so far...")
                 continue
 
             if doc_id:
@@ -782,17 +792,21 @@ async def scrape_target_async(session, semaphore, target, district, category, li
         await asyncio.sleep(random.uniform(0.5, 1.2))
 
     if not dry_run:
-        checkpoint[target_checkpoint_key(district, category, target)] = True
-        with open(checkpoint_path, "w") as f:
-            json.dump(checkpoint, f)
-        log(f"  [CHECKPOINT] Saved target progress: '{target}' marked as done.")
+        if got_any_rows:
+            checkpoint[target_checkpoint_key(district, category, target)] = True
+            with open(checkpoint_path, "w") as f:
+                json.dump(checkpoint, f)
+            log(f"  [CHECKPOINT] Saved target progress: '{target}' marked as done.")
+        else:
+            log(f"  [WARN] '{target}' returned 0 results on first request for '{category}' â€” "
+                f"not checkpointing, will retry on next run instead of silently staying empty.")
 
     return local_inserted
 
 
-async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 3, limit: int = 100, dry_run: bool = False, use_proxy: bool = True):
+async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 3, limit: int = 100, dry_run: bool = False, use_proxy: bool = True, force: bool = False, ncatid: str = None):
     """Core async engine for single subcategory scans."""
-    from app.scraper.logger import log
+    from app.scraper.jwt_logger import log
     
     log("=" * 60)
     log("  JustDial Asynchronous Cloud Scraper (JWT Enabled + Concurrency)")
@@ -818,14 +832,14 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
             use_area_query = False
 
     # Smart page allocation: main city gets full pages, smaller areas get fewer
-    # First target = main city/district name → full pages
-    # Rest = smaller towns/pincodes → max 3-4 pages (enough to get unique results)
+    # First target = main city/district name â†’ full pages
+    # Rest = smaller towns/pincodes â†’ max 3-4 pages (enough to get unique results)
     def get_pages_for_target(target: str, idx: int) -> int:
         if idx == 0:
             return pages  # main city gets full pages
         return min(pages, 4)  # smaller areas: max 4 pages
 
-    log(f"  Areas: {len(targets)} targets — main city ({targets[0]}) gets {pages} pages, others get max 4")
+    log(f"  Areas: {len(targets)} targets â€” main city ({targets[0]}) gets {pages} pages, others get max 4")
 
     existing_phones = set()
     existing_names_districts = set()
@@ -833,14 +847,32 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     def load_cache():
         db = SessionLocal()
         try:
-            phones_res = db.execute(text("SELECT phone FROM listings WHERE phone IS NOT NULL AND phone != ''")).fetchall()
+            # Check if there are any existing listings for this category first
+            count_res = db.execute(
+                text("SELECT COUNT(*) FROM listings WHERE category ILIKE :cat OR subcategory ILIKE :cat"),
+                {"cat": f"%{category}%"}
+            ).scalar()
+            
+            if count_res == 0:
+                log(f"[INFO] No existing listings found for category matching '{category}'. Bypassing database cache loading.")
+                return
+
+            # Only cache phone numbers from listings that match similar categories (e.g. containing 'dealer' or matching target category)
+            # to prevent other unrelated categories from blocking insertions
+            phones_res = db.execute(
+                text("SELECT phone FROM listings WHERE phone IS NOT NULL AND phone != '' AND (category ILIKE :cat OR subcategory ILIKE :cat)"),
+                {"cat": f"%{category}%"}
+            ).fetchall()
             for r in phones_res:
                 p_clean = r[0].replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("+", "")
                 if p_clean.startswith("91") and len(p_clean) == 12:
                     p_clean = p_clean[2:]
                 existing_phones.add(p_clean)
                 
-            names_res = db.execute(text("SELECT name, district FROM listings")).fetchall()
+            names_res = db.execute(
+                text("SELECT name, district FROM listings WHERE category ILIKE :cat OR subcategory ILIKE :cat"),
+                {"cat": f"%{category}%"}
+            ).fetchall()
             for n, d in names_res:
                 existing_names_districts.add((n.lower().strip(), d.lower().strip() if d else ""))
         finally:
@@ -848,16 +880,23 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
 
     log("[INFO] Caching existing listings from database for fast duplicate prevention...")
     await asyncio.to_thread(load_cache)
-    log(f"[INFO] Cached {len(existing_phones)} phones and {len(existing_names_districts)} listings.")
+    log(f"[INFO] Cached {len(existing_phones)} phone numbers and {len(existing_names_districts)} listings for category '{category}'.")
 
-    data_dir = get_data_dir()
-    flag_path = os.path.join(data_dir, "scrape_stop.flag")
-    checkpoint_path = os.path.join(data_dir, f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
-    try:
-        with open(checkpoint_path, "r") as f:
-            checkpoint = json.load(f)
-    except Exception:
-        checkpoint = {}
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Dedicated to this engine only â€” never shared with the ADB/emulator stop flag
+    # or the generic /api/v1/scrape one, so stopping one never touches the other.
+    from config import settings as _settings
+    flag_path = os.path.join(_settings.DATA_FOLDER, "jwt_scrape_stop.flag")
+    checkpoint_path = os.path.join(current_dir, "data", f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    if force:
+        checkpoint = {}  # force=True ignores any existing per-target checkpoint entirely
+    else:
+        try:
+            with open(checkpoint_path, "r") as f:
+                checkpoint = json.load(f)
+        except Exception:
+            checkpoint = {}
 
     seen_ids = set()
     stats = {"unique": 0, "duplicates": 0}
@@ -872,7 +911,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
                 get_pages_for_target(target, idx),  # smart page allocation
                 use_area_query, dry_run, existing_phones, existing_names_districts,
                 checkpoint, checkpoint_path, flag_path, use_proxy,
-                seen_ids=seen_ids, stats=stats
+                seen_ids=seen_ids, stats=stats, force=force, ncatid=ncatid
             )
             for idx, target in enumerate(targets)
         ]
@@ -882,12 +921,16 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
 
     log(f"\n[COMPLETE] Async Scrape Completed! Total new listings inserted: {total_inserted}")
     log(f"[DEDUP SUMMARY] Found {stats['unique']} unique, skipped {stats['duplicates']} duplicates")
-    return total_inserted, 0
+    # Second value is total rows actually seen from the API (unique + duplicates) â€” distinct from
+    # total_inserted, which can legitimately be 0 when every result was already in the DB. Callers
+    # use this to tell "really got 0 API results" (both 0) from "fully covered, nothing new" (only
+    # total_inserted is 0), so they know whether it's safe to mark this run complete.
+    return total_inserted, stats['unique'] + stats['duplicates']
 
 
-async def scrape_jwt_city_async(district: str, category: str, pages: int = 3, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = True):
+async def scrape_jwt_city_async(district: str, category: str, pages: int = 3, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = True, force: bool = False, ncatid: str = None):
     """Main entry point for async scraper logic."""
-    from app.scraper.logger import log
+    from app.scraper.jwt_logger import log
     
     if subcategories:
         from app.scraper.constants import get_subcategories_for_main
@@ -919,35 +962,38 @@ async def scrape_jwt_city_async(district: str, category: str, pages: int = 3, li
                 log(f"## Subcategory [{idx+1}/{len(subcats)}]: {sub}")
                 log(f"############################################################")
 
-                if is_done(district, sub):
+                if not force and is_done(district, sub):
                     log(f"  [CHECKPOINT] Already completed '{sub}' in '{district}'. Skipping!")
                     continue
 
-                ins, upd = await scrape_jwt_city_async_core(district=district, category=sub, pages=pages, limit=limit, dry_run=dry_run, use_proxy=use_proxy)
+                ins, upd = await scrape_jwt_city_async_core(district=district, category=sub, pages=pages, limit=limit, dry_run=dry_run, use_proxy=use_proxy, force=force)
                 total_ins += ins
                 total_upd += upd
 
-                mark_done(district, sub)
-                log(f"  [CHECKPOINT] Saved progress: '{sub}' in '{district}' marked as done.")
+                if (ins + upd) > 0:
+                    mark_done(district, sub)
+                    log(f"  [CHECKPOINT] Saved progress: '{sub}' in '{district}' marked as done.")
+                else:
+                    log(f"  [WARN] '{sub}' in '{district}' returned 0 results â€” not marking done, will retry next run.")
 
             log(f"\n{'='*60}")
             log(f"  BATCH COMPLETED! Total Inserted: {total_ins}")
             log(f"{'='*60}")
             return total_ins, total_upd
 
-    return await scrape_jwt_city_async_core(district=district, category=category, pages=pages, limit=limit, dry_run=dry_run, use_proxy=use_proxy)
+    return await scrape_jwt_city_async_core(district=district, category=category, pages=pages, limit=limit, dry_run=dry_run, use_proxy=use_proxy, force=force, ncatid=ncatid)
 
 
-def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = False):
+def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 100, dry_run: bool = False, subcategories: bool = False, use_proxy: bool = False, force: bool = False, ncatid: str = None):
     """
     Scrape JustDial using direct JWT requests for all pincodes in the district.
     Uses cursor-based pagination (nextdocid) to navigate through all result pages.
     Writes progress to the app's global scraper_logger.
     """
-    from app.scraper.logger import log
+    from app.scraper.jwt_logger import log
 
     # Run async scraper mode for both local and cloud
-    return asyncio.run(scrape_jwt_city_async(district, category, pages, limit, dry_run, subcategories, use_proxy))
+    return asyncio.run(scrape_jwt_city_async(district, category, pages, limit, dry_run, subcategories, use_proxy, force, ncatid))
     if subcategories:
         from app.scraper.constants import get_subcategories_for_main
         subcats = get_subcategories_for_main(category)
@@ -958,7 +1004,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
             total_ins = 0
             total_upd = 0
 
-            # ── Checkpoint system: resume from where we stopped ──────────────
+            # â”€â”€ Checkpoint system: resume from where we stopped â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             checkpoint_path = os.path.join(get_data_dir(), f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
             try:
                 with open(checkpoint_path, "r") as f:
@@ -976,7 +1022,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
 
             def is_done(d, s):
                 return checkpoint.get(checkpoint_key(d, s), False)
-            # ─────────────────────────────────────────────────────────────────
+            # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
             for idx, sub in enumerate(subcats):
                 log(f"\n############################################################")
@@ -1086,7 +1132,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
 
     save_last_run_status("running")
 
-    # ── Target Checkpoint system: resume from where we stopped ──────────────
+    # â”€â”€ Target Checkpoint system: resume from where we stopped â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     checkpoint_path = os.path.join(data_dir, f"scrape_checkpoint_{category.lower().replace(' ', '_')}.json")
     try:
         with open(checkpoint_path, "r") as f:
@@ -1104,7 +1150,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
 
     def is_target_done(d, c, t):
         return checkpoint.get(target_checkpoint_key(d, c, t), False)
-    # ─────────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     for idx, target in enumerate(targets):
         # Skip if already completed in a previous run
@@ -1115,7 +1161,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
         # Check stop flag before target
         if os.path.exists(flag_path):
             save_last_run_status("stopped")
-            log("🛑 Scrape task stopped by user request.")
+            log("ðŸ›‘ Scrape task stopped by user request.")
             break
 
         save_last_run_status("running", current_target=target)
@@ -1132,7 +1178,7 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
             # Check stop flag inside loop
             if os.path.exists(flag_path):
                 save_last_run_status("stopped")
-                log("🛑 Scrape task stopped by user request.")
+                log("ðŸ›‘ Scrape task stopped by user request.")
                 break
 
             page_num += 1
@@ -1160,9 +1206,9 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
                     total_count = 0
                     
                 if total_count > 0:
-                    log(f"🔎 Found {total_count} total {category} in {target}.")
+                    log(f"ðŸ”Ž Found {total_count} total {category} in {target}.")
                 else:
-                    log(f"🔎 Searching {category} in {target}...")
+                    log(f"ðŸ”Ž Searching {category} in {target}...")
 
             if not rows:
                 log("  No results returned for this batch. Moving to next target.")
@@ -1212,14 +1258,14 @@ def scrape_jwt_city(district: str, category: str, pages: int = 10, limit: int = 
                     inserted, updated = save_to_db(db, listing, category, proxy_config=proxy_config)
                     if inserted:
                         total_inserted += 1
-                        log(f"       → [NEW] Saved to DB ✅")
+                        log(f"       â†’ [NEW] Saved to DB âœ…")
                         # Add to cached sets dynamically
                         if c_phone:
                             existing_phones.add(c_phone)
                         existing_names_districts.add(name_key)
                     elif updated:
                         total_updated += 1
-                        log(f"       → [UPD] Updated in DB 🔄")
+                        log(f"       â†’ [UPD] Updated in DB ðŸ”„")
 
             # Update next_cursor for the next page query
             next_cursor = raw_next_cursor

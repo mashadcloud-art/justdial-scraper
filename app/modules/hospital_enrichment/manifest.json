@@ -1,0 +1,8 @@
+{
+  "name": "hospital_enrichment",
+  "version": "1.0.0",
+  "description": "Find each hospital listing's official website, crawl it for a photo gallery and doctors/team page, and store the results linked to the source listing",
+  "author": "Scapre",
+  "prefix": "/api/v1/hospital_enrichment",
+  "routes": 9
+}
