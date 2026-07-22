@@ -402,6 +402,7 @@ def get_stats(db: Session = Depends(get_db), current_user: Optional[dict] = Depe
 
     return {
         "total_listings": total_listings,
+        "total_businesses": total_listings,
         "total_restaurants": total_listings,  # Backward compatibility
         "total_images": total_images,
         "total_menu_items": total_menu_items,
