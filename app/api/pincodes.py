@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import requests
 import re
@@ -54,7 +54,8 @@ def get_pincodes_for_district(district_name: str):
             "alleppey": "alappuzha",
             "trivandrum": "thiruvananthapuram",
             "trichur": "thrissur",
-            "calicut": "kozhikode"
+            "calicut": "kozhikode",
+            "mangalore": "dakshina kannada"
         }
         search_district = normalization_map.get(search_district, search_district)
 
@@ -127,7 +128,8 @@ def get_pincodes_with_names(district: str):
             "alleppey": "alappuzha",
             "trivandrum": "thiruvananthapuram",
             "trichur": "thrissur",
-            "calicut": "kozhikode"
+            "calicut": "kozhikode",
+            "mangalore": "dakshina kannada"
         }
         search_district = normalization_map.get(search_district, search_district)
 

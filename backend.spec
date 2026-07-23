@@ -1,9 +1,9 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# ── Collect data files from packages that have non-Python assets ──
+# â”€â”€ Collect data files from packages that have non-Python assets â”€â”€
 datas = []
 datas += collect_data_files('playwright_stealth')   # JS stealth files
 datas += collect_data_files('playwright')            # Playwright driver assets
@@ -11,7 +11,7 @@ datas += collect_data_files('certifi')               # SSL certs
 datas += collect_data_files('httpx')
 datas += collect_data_files('anyio')
 
-# ── Hidden imports that PyInstaller misses ──
+# â”€â”€ Hidden imports that PyInstaller misses â”€â”€
 hiddenimports = [
     'app',
     'app.main',
@@ -66,6 +66,22 @@ hiddenimports = [
     'app.modules.adb_scraper',
     'app.modules.adb_scraper.router',
     'app.modules.adb_scraper.service',
+    'app.modules.auth',
+    'app.modules.auth.router',
+    'app.modules.dashboard',
+    'app.modules.dashboard.router',
+    'app.modules.export',
+    'app.modules.export.router',
+    'app.modules.module_store',
+    'app.modules.module_store.router',
+    'app.modules.mobile_scraper',
+    'app.modules.mobile_scraper.router',
+    'app.modules.map_scraper',
+    'app.modules.map_scraper.router',
+    'app.modules.aster_scraper',
+    'app.modules.aster_scraper.router',
+    'app.modules.deep_scrape',
+    'app.modules.deep_scrape.router',
 ]
 
 a = Analysis(

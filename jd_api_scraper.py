@@ -49,6 +49,7 @@ SECRET_KEY = "2MQkzWVlwMx44uSC3KvWGk4nYiXQ3cMicyZQP7oc8y6KcflHR9zksp2eT1YHAGQL9E
 
 # Rotates between the user's 69 different Webshare static residential proxy credentials
 import random
+import struct
 def get_random_proxy():
     # Credentials format: wnjqhjor-IN-X:0clsqfyfo9wa where X is between 1 and 69
     num = random.randint(1, 69)
@@ -64,40 +65,60 @@ PROXIES = get_random_proxy()
 # Use NO_PROXY for direct search, proxy only needed on Oracle Cloud server.
 NO_PROXY = None
 
-def generate_jd_bearer_token():
+_SESSION_DEVICE_ID = None
+_SESSION_DI_HEADER = None
+_SESSION_ID = None
+
+def get_session_device_id():
+    """One device_id reused for the whole scrape run, instead of a fresh
+    device on every request (which looks like a bot pattern)."""
+    global _SESSION_DEVICE_ID
+    if _SESSION_DEVICE_ID is None:
+        _SESSION_DEVICE_ID = str(uuid.uuid4())
+    return _SESSION_DEVICE_ID
+
+def build_di_header():
+    android_id = uuid.uuid4().hex[:16]
+    device_info = (
+        "device:-SM-G950F,Manufacture:-samsung,Model:-SM-G950F,BuildVersion:-9,"
+        "Product:-dreamltexx ,BuildUser:-dpi ,Serial:-unknown ,OsVersion:-9"
+    )
+    imei = "".join(str(random.randint(0, 9)) for _ in range(15))
+    return json.dumps({"deviceid": android_id, "deviceinfo": device_info, "imei": imei})
+
+def get_session_di_header():
+    """One di header reused for the whole scrape run."""
+    global _SESSION_DI_HEADER
+    if _SESSION_DI_HEADER is None:
+        _SESSION_DI_HEADER = build_di_header()
+    return _SESSION_DI_HEADER
+
+def get_session_id_value():
+    """One session_id reused for the whole scrape run."""
+    global _SESSION_ID
+    if _SESSION_ID is None:
+        _SESSION_ID = str(uuid.uuid4())
+    return _SESSION_ID
+
+def generate_jd_bearer_token(device_id: str = None):
     """Generate signed JWT token mimicking JustDial app authentication."""
-    nano_time = time.time_ns()
-    random_uuid = str(uuid.uuid4())
-    b64_uuid = base64.b64encode(random_uuid.encode('utf-8')).decode('utf-8')
-    
+    if not device_id:
+        device_id = get_session_device_id()
+    millis_time = int(time.time() * 1000)
+    rand_double = random.random()
+    rand_bytes = struct.pack(">d", rand_double)
+    jti = base64.b64encode(rand_bytes).decode("utf-8")
     payload = {
-        "iat": nano_time,
-        "jti": b64_uuid,
-        "iss": "justdial",
-        "exp": nano_time,
+        "iat": millis_time,
+        "jti": jti,
+        "iss": device_id,
+        "exp": millis_time + 3600000,
         "source": "android"
     }
-    
     headers = {
         "typ": "JWT"
     }
-    
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256", headers=headers)
-
-
-# Image base URL
-JD_IMAGE_BASE = "https://images.jdmagicbox.com"
-JD_CONTENT_BASE = "https://content.jdmagicbox.com"
-
-# Category slug mapping for JustDial search
-CATEGORY_SLUGS = {
-    "Restaurants": "Restaurants",
-    "Hotels": "Hotels",
-    "Hospitals": "Hospitals",
-    "Clinics": "Clinics",
-    "Schools": "Schools",
-    "Shops": "Shops",
-}
 
 
 def build_full_image_url(path_or_url: str) -> str:
@@ -141,6 +162,16 @@ def scrape_jd_api(target_location: str, category: str, limit: int = 100, nextdoc
         "stype": "category_list",
         "search": category,
         "limit": limit,
+        "version": "1788",
+        "wap": "1",
+        "native": "1",
+        "source": "1",
+        "mobtyp": "2",
+        "isdcode": "0091",
+        "udid": "",
+        "concode": "0091",
+        "ln": "en",
+        "apiversion": "1.2",
     }
 
     # Cursor-based pagination: pass nextdocid to get the next page
@@ -543,19 +574,37 @@ def save_to_db(db, listing_data: dict, category: str, proxy_config = None) -> tu
 
 
 async def scrape_jd_api_async(session, target_location: str, category: str, limit: int = 100, nextdocid: str = None, proxy_config = None, ncatid: str = None) -> dict:
-    """Async JustDial API caller using aiohttp ClientSession."""
-    auth_token = generate_jd_bearer_token()
-    device_id = str(uuid.uuid4())
-
+    """JustDial API caller. Uses requests (not aiohttp) run in a thread pool --
+    aiohttp's TLS/network fingerprint was found to trigger JustDial's anti-bot
+    system ("Please Disable VPN") even with fully correct params/headers, while
+    plain requests with the identical payload succeeds. session param kept for
+    call-site compatibility but is unused."""
+    di_header = get_session_di_header()
+    try:
+        device_id = json.loads(di_header).get("deviceid", get_session_device_id())
+    except Exception:
+        device_id = get_session_device_id()
+    auth_token = generate_jd_bearer_token(device_id)
+    session_id = get_session_id_value()
     headers = {
         "Authorization": f"Bearer {auth_token}",
-        "di": device_id,
+        "di": di_header,
+        "name": "",
+        "session_id": session_id,
+        "mobile": "",
+        "number": "",
+        "pdocid": "",
+        "app_session_id": session_id,
+        "email_id": "",
+        "login_email": "",
+        "usercity": "",
+        "userarea": "",
+        "lme_param": "",
         "User-Agent": "JustDial-Android/848",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-IN,en;q=0.9",
         "Connection": "keep-alive"
     }
-
     params = {
         "city": target_location,
         "state": "",
@@ -563,52 +612,51 @@ async def scrape_jd_api_async(session, target_location: str, category: str, limi
         "stype": "category_list",
         "search": category,
         "limit": limit,
+        "version": "1788",
+        "wap": "1",
+        "native": "1",
+        "source": "1",
+        "mobtyp": "2",
+        "isdcode": "0091",
+        "udid": "",
+        "concode": "0091",
+        "ln": "en",
+        "apiversion": "1.2",
     }
-
     if nextdocid:
         params["nextdocid"] = nextdocid
     if ncatid:
         params["ncatid"] = ncatid
-
     proxy_url = proxy_config["http"] if proxy_config and "http" in proxy_config else None
-
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     MAX_RETRIES = 2
     data = None
+
+    def _do_request():
+        resp = requests.get(JD_API_BASE, params=params, headers=headers, proxies=proxies, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            if attempt > 1:
-                headers["Authorization"] = f"Bearer {generate_jd_bearer_token()}"
-                headers["di"] = str(uuid.uuid4())
-                if proxy_config is not None:
-                    new_proxy = get_random_proxy()
-                    if new_proxy and "http" in new_proxy:
-                        proxy_url = new_proxy["http"]
-            async with session.get(JD_API_BASE, params=params, headers=headers, proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                break
+            data = await asyncio.to_thread(_do_request)
+            break
         except Exception as e:
             if attempt == MAX_RETRIES:
                 return {"columns": [], "rows": [], "raw": {}, "next_cursor": None}
             await asyncio.sleep(1)
-
     if data is None:
         return {"columns": [], "rows": [], "raw": {}, "next_cursor": None}
-
     results = data.get("results", {})
     if not isinstance(results, dict):
         return {"columns": [], "rows": [], "raw": data, "next_cursor": None}
-
     columns = results.get("columns", [])
     rows = results.get("data", [])
-
     next_cursor = data.get("nextdocid") or None
     next_cursor_count = data.get("nextdocidcount", 0)
     if not next_cursor_count:
         next_cursor = None
-
     total_count = data.get("totalNumberofResults", 0)
-
     return {"columns": columns, "rows": rows, "raw": data, "next_cursor": next_cursor, "total_count": total_count}
 
 
@@ -701,6 +749,7 @@ async def scrape_target_async(session, semaphore, target, district, category, li
         proxy_config = get_random_proxy() if use_proxy else None
 
         async with semaphore:
+            await asyncio.sleep(random.uniform(0.4, 1.0))  # stagger requests to avoid burst-pattern detection
             if use_area_query:
                 result = await scrape_jd_api_async(session, district, f"{category} in {target}", limit=limit, nextdocid=next_cursor, proxy_config=proxy_config, ncatid=ncatid)
             elif target.isdigit() and len(target) == 6:
@@ -849,7 +898,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
         try:
             # Check if there are any existing listings for this category first
             count_res = db.execute(
-                text("SELECT COUNT(*) FROM listings WHERE category ILIKE :cat OR subcategory ILIKE :cat"),
+                text("SELECT COUNT(*) FROM listings WHERE category LIKE :cat OR subcategory LIKE :cat"),
                 {"cat": f"%{category}%"}
             ).scalar()
             
@@ -860,7 +909,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
             # Only cache phone numbers from listings that match similar categories (e.g. containing 'dealer' or matching target category)
             # to prevent other unrelated categories from blocking insertions
             phones_res = db.execute(
-                text("SELECT phone FROM listings WHERE phone IS NOT NULL AND phone != '' AND (category ILIKE :cat OR subcategory ILIKE :cat)"),
+                text("SELECT phone FROM listings WHERE phone IS NOT NULL AND phone != '' AND (category LIKE :cat OR subcategory LIKE :cat)"),
                 {"cat": f"%{category}%"}
             ).fetchall()
             for r in phones_res:
@@ -870,7 +919,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
                 existing_phones.add(p_clean)
                 
             names_res = db.execute(
-                text("SELECT name, district FROM listings WHERE category ILIKE :cat OR subcategory ILIKE :cat"),
+                text("SELECT name, district FROM listings WHERE category LIKE :cat OR subcategory LIKE :cat"),
                 {"cat": f"%{category}%"}
             ).fetchall()
             for n, d in names_res:
@@ -901,7 +950,7 @@ async def scrape_jwt_city_async_core(district: str, category: str, pages: int = 
     seen_ids = set()
     stats = {"unique": 0, "duplicates": 0}
 
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(2)  # lowered from 5 to reduce burst-pattern detection risk
 
     connector = aiohttp.TCPConnector(limit=30, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
