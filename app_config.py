@@ -1,16 +1,9 @@
 import os
-import sys
 import yaml
 from typing import Dict, Any
 
-# Path to the YAML config file. When running as a PyInstaller-frozen exe,
-# __file__ resolves to a temp extraction folder -- the real config.yaml
-# needs to be found next to the actual .exe instead.
-if getattr(sys, "frozen", False):
-    _base_dir = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    _base_dir = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(_base_dir, "config.yaml")
+# Path to the YAML config file
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 
 # Default config (matches current app behavior for backward compatibility)
 DEFAULT_CONFIG = {
